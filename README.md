@@ -59,7 +59,7 @@ Tests use a fake Paperclip API and a fake Ollama (`tests/fakes.py`).
 - `npx paperclipai onboard --yes` can fail to start with `Postgres init script exited with code 127`:
   the bundled embedded Postgres needs `libicuuc.so.60` symlinks that its `postinstall` did not create.
   Fix: `cd ~/.npm/_npx/*/node_modules/@embedded-postgres/linux-x64 && node scripts/hydrate-symlinks.js` as the `paperclip` user, then `npx paperclipai run`.
-- Doctor reports no usable systemd *user* manager for `paperclip`, so `deploy/paperclip.service` may need to be a system unit (`User=paperclip`) instead.
+- Doctor reports no usable systemd *user* manager for `paperclip`, so `deploy/paperclip.service` is a system unit (`User=paperclip`); install steps are in its header.
 - A leftover embedded Postgres from earlier experiments can hold port 54329; Paperclip moves to the next free port.
 
 Run `bin/qwen-run --score` on the target machine and read `qwen/enabled.json` before relying on the Worker.

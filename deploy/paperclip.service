@@ -1,17 +1,24 @@
-# Install as a user unit for the `paperclip` user:
-#   sudo -u paperclip mkdir -p ~paperclip/.config/systemd/user
-#   copy this file there, then: sudo loginctl enable-linger paperclip
-#   sudo -u paperclip XDG_RUNTIME_DIR=/run/user/$(id -u paperclip) systemctl --user enable --now paperclip
+# System unit that runs Paperclip as the `paperclip` user (the user manager route doesn't work here).
+# Install (as you):
+#   sudo cp deploy/paperclip.service /etc/systemd/system/paperclip.service
+#   sudo pkill -u paperclip -f paperclipai     # stop the hand-started nohup copy first
+#   sudo systemctl daemon-reload && sudo systemctl enable --now paperclip
+#   systemctl status paperclip; curl -s -o /dev/null -w "%{http_code}\n" localhost:3100
+# Logs: journalctl -u paperclip -f
 [Unit]
 Description=Paperclip control plane (Studio)
-After=network-online.target
+After=network-online.target ollama.service
+Wants=network-online.target
 
 [Service]
-WorkingDirectory=%h
-ExecStart=/usr/bin/env npx paperclipai run
+User=paperclip
+Group=paperclip
+Environment=HOME=/home/paperclip
+WorkingDirectory=/home/paperclip
+ExecStart=/usr/bin/env npx --yes paperclipai run
 Restart=on-failure
 RestartSec=10
-# Reach the web page over Tailscale; never expose 3100 to the internet.
+# Loopback only (local_trusted). Reach it over Tailscale; never expose 3100 to the internet.
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
