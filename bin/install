@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy this checkout onto /srv/studio. Prints what it would do; run with --apply to do it.
 # Run as the `paperclip` user (or root) AFTER guide Part 2.1 created /srv/studio.
-#   git clone git@github.com:BenjaminMPritchard/studio-company.git /srv/studio/company
+#   git clone git@github.com:Agentic-Builds-Studio/studio-company.git /srv/studio/company
 #   /srv/studio/company/bin/install --apply
 set -euo pipefail
 SRC="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)"

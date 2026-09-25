@@ -6,7 +6,7 @@
 project:
   slug: mothers-carpentry
   archetype: C
-  repo: BenjaminMPritchard/Mothers-Carpentry-Webpage
+  repo: Agentic-Builds-Studio/Mothers-Carpentry-Webpage
   default_branch: main
 client:
   channel: "agentmail:studio"          # TODO(owner): confirm inbox name once created

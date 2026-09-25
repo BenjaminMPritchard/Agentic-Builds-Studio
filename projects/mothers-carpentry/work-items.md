@@ -1,6 +1,6 @@
 # First Paperclip issues (guide 6.4)
 
-One Paperclip issue per item, each with a `GitHub: BenjaminMPritchard/Mothers-Carpentry-Webpage#N`
+One Paperclip issue per item, each with a `GitHub: Agentic-Builds-Studio/Mothers-Carpentry-Webpage#N`
 line in its description (the Clerk reads it) and `blockedByIssueIds` as shown. Don't mirror threads.
 
 | Work item | Assignee | Blocked by |

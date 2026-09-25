@@ -1,6 +1,6 @@
 # Mothers Carpentry (Driftwood & Dovetail): Studio project #1
 
-Repo: `BenjaminMPritchard/Mothers-Carpentry-Webpage` (commerce site, Django + React + Stripe + Parcel2Go).
+Repo: `Agentic-Builds-Studio/Mothers-Carpentry-Webpage` (commerce site, Django + React + Stripe + Parcel2Go).
 Source of truth for engineering stays in that repo and its GitHub issues (#1 roadmap, #4 owner
 answers, #23 Director brief). Nothing in it was rewritten by Studio.
 

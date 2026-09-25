@@ -50,7 +50,7 @@ class Structure(unittest.TestCase):
 
     def test_project_yaml_bridge(self):
         y = open(p("projects/mothers-carpentry/project.yaml")).read()
-        for w in ("repo: BenjaminMPritchard/Mothers-Carpentry-Webpage", "db_name: \"mc_{task}\"", "8001", "5174",
+        for w in ("repo: Agentic-Builds-Studio/Mothers-Carpentry-Webpage", "db_name: \"mc_{task}\"", "8001", "5174",
                   "roadmap: 1", "owner_questions: 4", "director_brief: 23", "merge: human"):
             self.assertIn(w, y)
         self.assertNotIn("sk_live", y)
