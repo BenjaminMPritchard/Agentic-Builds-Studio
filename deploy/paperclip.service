@@ -14,6 +14,7 @@ Wants=network-online.target
 User=paperclip
 Group=paperclip
 Environment=HOME=/home/paperclip
+Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/paperclip
 ExecStart=/usr/bin/env npx --yes paperclipai run
 Restart=on-failure
