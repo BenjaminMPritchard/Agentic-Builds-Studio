@@ -1,0 +1,17 @@
+# Install as a user unit for the `paperclip` user:
+#   sudo -u paperclip mkdir -p ~paperclip/.config/systemd/user
+#   copy this file there, then: sudo loginctl enable-linger paperclip
+#   sudo -u paperclip XDG_RUNTIME_DIR=/run/user/$(id -u paperclip) systemctl --user enable --now paperclip
+[Unit]
+Description=Paperclip control plane (Studio)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h
+ExecStart=/usr/bin/env npx paperclipai run
+Restart=on-failure
+RestartSec=10
+# Reach the web page over Tailscale; never expose 3100 to the internet.
+
+[Install]
+WantedBy=default.target

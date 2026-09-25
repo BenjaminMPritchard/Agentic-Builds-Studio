@@ -1,0 +1,10 @@
+{
+ "input": {
+  "text": "Next time we should cache the shipping quote. Also TODO: blank the label PDF after retention."
+ },
+ "expect": {
+  "followups": {
+   "contains": "label PDF"
+  }
+ }
+}

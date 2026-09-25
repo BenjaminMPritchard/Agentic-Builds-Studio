@@ -1,0 +1,5 @@
+- Paperclip API and the `paperclip` skill (added automatically). Studio house rules override its "never ask a human" rule; see `CONSTITUTION.md`.
+- `bin/guard` runs on every Bash/Edit/Write; if it blocks you, do not work around it: comment on the task and ask.
+- `gh` uses your `GH_TOKEN` (scoped; never print it).
+- Working directory: `/srv/studio/work/director` (read-only clones of site repos; edits there are blocked on `main`).
+- Skills: house-rules, task-packet, project-bootstrap, review-gate, qwen-job.

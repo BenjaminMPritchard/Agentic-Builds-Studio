@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""The Clerk's command. `clerk tick` (every 10 min), `clerk weekly`.
+
+Env: STUDIO_COMPANY_ID (required), STUDIO_DATA, STUDIO_DIRECTOR_ID, STUDIO_PRINCIPAL_ID,
+STUDIO_RECORDER_ID, CLERK_DRY_RUN=1 (report only: writes digests and logs, wakes no one).
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib.clerk import Clerk  # noqa: E402
+from lib.paperclip import Paperclip  # noqa: E402
+
+E = os.environ.get
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "tick"
+    if not E("STUDIO_COMPANY_ID"):
+        print("STUDIO_COMPANY_ID is not set", file=sys.stderr)
+        return 1
+    c = Clerk(Paperclip(), E("STUDIO_COMPANY_ID"), E("STUDIO_DATA", "/srv/studio/data"),
+              dry_run=E("CLERK_DRY_RUN") == "1", director_id=E("STUDIO_DIRECTOR_ID"),
+              principal_id=E("STUDIO_PRINCIPAL_ID"), recorder_id=E("STUDIO_RECORDER_ID"))
+    if cmd == "tick":
+        c.tick()
+    elif cmd == "weekly":
+        print(c.weekly())
+    else:
+        print("usage: clerk tick|weekly", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

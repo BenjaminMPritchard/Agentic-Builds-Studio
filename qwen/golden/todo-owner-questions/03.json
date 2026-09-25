@@ -1,0 +1,8 @@
+{
+ "input": {
+  "text": "No open questions."
+ },
+ "expect": {
+  "items": []
+ }
+}

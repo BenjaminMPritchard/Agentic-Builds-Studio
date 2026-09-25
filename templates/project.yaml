@@ -1,0 +1,32 @@
+# .studio/project.yaml: project-specific settings. Generic machinery stays in studio-company.
+# Protected file: agents may edit it only when a task packet lists it in allowed-paths.
+project:
+  slug: ""                 # short name, used in studio-company/projects/<slug>/
+  archetype: C             # A brochure | B content/CMS | C commerce | D web app
+  repo: ""                 # owner/name on GitHub
+  default_branch: main
+client:
+  channel: ""              # e.g. "agentmail:<inbox>"; contact details only as a secret reference
+  contact_secret: ""       # Paperclip secret name, never the address itself
+commands:
+  setup: ""
+  check: ""
+  e2e: ""                  # agents run it only through /srv/studio/bin/studio-e2e
+  e2e_triggers: []         # file globs that make e2e mandatory
+isolation:
+  db_name: "{task}"        # per-worktree database name; {task} is the worktree name
+  e2e_ports: []
+  e2e_lock: /srv/studio/locks/e2e.lock
+paths:
+  risk_paths: []           # Principal-owned (Tier B)
+  protected_paths: []      # editable only when listed in a packet
+registers:
+  roadmap: 0               # GitHub issue numbers
+  owner_questions: 0
+  director_brief: 0
+gates:
+  branch_protection: true
+  required_checks: [check]
+  merge: human
+budget:
+  monthly_cents: 0

@@ -1,0 +1,9 @@
+{
+ "input": {
+  "from": "terrie@example.com",
+  "body": "Hi! We'd like the oak look, and the delivery cut-off is 3pm."
+ },
+ "expect": {
+  "needs_human": false
+ }
+}

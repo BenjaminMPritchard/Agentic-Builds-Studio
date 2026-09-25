@@ -1,0 +1,8 @@
+{
+ "input": {
+  "log": "ruff check .\nbackend/core/x.py:3:1: F401 `os` imported but unused\nFound 1 error."
+ },
+ "expect": {
+  "category": "lint"
+ }
+}

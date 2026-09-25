@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Deploy this checkout onto /srv/studio. Prints what it would do; run with --apply to do it.
+# Run as the `paperclip` user (or root) AFTER guide Part 2.1 created /srv/studio.
+#   git clone git@github.com:BenjaminMPritchard/studio-company.git /srv/studio/company
+#   /srv/studio/company/bin/install --apply
+set -euo pipefail
+SRC="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)"
+ROOT="${STUDIO_ROOT:-/srv/studio}"
+CLAUDE_HOME="${STUDIO_CLAUDE_HOME:-$HOME/.claude}"
+APPLY=0; [ "${1:-}" = "--apply" ] && APPLY=1
+run() { if [ $APPLY = 1 ]; then "$@"; else echo "would: $*"; fi; }
+
+for d in work locks data data/log data/backup work/director work/liaison work/architect work/recorder work/clerk work/worker; do run mkdir -p "$ROOT/$d"; done
+run chmod +x "$SRC"/bin/*
+[ "$SRC" = "$ROOT/company" ] || echo "note: checkout is $SRC, guide expects $ROOT/company"
+run ln -sfn "$SRC/bin" "$ROOT/bin"
+run ln -sfn "$SRC/claude" "$ROOT/claude"
+if [ -e "$CLAUDE_HOME/settings.json" ] && ! cmp -s "$SRC/claude/settings.json" "$CLAUDE_HOME/settings.json"; then
+  echo "existing $CLAUDE_HOME/settings.json differs: NOT overwritten. Merge $SRC/claude/settings.json by hand."
+else
+  run mkdir -p "$CLAUDE_HOME"; run cp "$SRC/claude/settings.json" "$CLAUDE_HOME/settings.json"
+fi
+echo "verify: $ROOT/bin/guard </dev/null && echo guard ok"

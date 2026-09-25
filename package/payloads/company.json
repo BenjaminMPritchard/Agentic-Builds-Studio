@@ -1,0 +1,63 @@
+{
+  "budget": {
+    "companyMonthlyCents": 70000
+  },
+  "execution_policies": {
+    "tier_b": {
+      "executionPolicy": {
+        "mode": "normal",
+        "commentRequired": true,
+        "maxReviewRounds": 2,
+        "stages": [
+          {
+            "type": "review",
+            "participants": [
+              {
+                "type": "agent",
+                "agentId": "<principal>"
+              }
+            ]
+          },
+          {
+            "type": "review",
+            "participants": [
+              {
+                "type": "agent",
+                "agentId": "<director>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "tier_a": {
+      "executionPolicy": {
+        "mode": "normal",
+        "commentRequired": true,
+        "maxReviewRounds": 2,
+        "stages": [
+          {
+            "type": "review",
+            "participants": [
+              {
+                "type": "agent",
+                "agentId": "<director>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "secrets_needed": [
+    "claude-oauth",
+    "gh-studio-build",
+    "gh-studio-coord",
+    "gh-studio-ops",
+    "dd-stripe-test-sk",
+    "dd-stripe-test-pk",
+    "dd-p2g-sandbox-id",
+    "dd-p2g-sandbox-secret"
+  ],
+  "secrets_rule": "Test/sandbox values only. No live key ever goes into Paperclip."
+}

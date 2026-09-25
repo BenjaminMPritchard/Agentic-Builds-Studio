@@ -1,0 +1,10 @@
+{
+ "input": {
+  "text": "Wording is TODO(owner): refund email text."
+ },
+ "expect": {
+  "items": {
+   "contains": "refund"
+  }
+ }
+}

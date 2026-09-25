@@ -1,0 +1,27 @@
+{
+  "name": "Worker",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "process",
+  "adapterConfig": {
+    "command": "/srv/studio/bin/qwen-run",
+    "cwd": "/srv/studio/work/worker",
+    "timeoutSec": 900,
+    "env": {
+      "OLLAMA_URL": "http://127.0.0.1:11434",
+      "QWEN_MODEL": "qwen3.5:4b",
+      "STUDIO_DATA": "/srv/studio/data"
+    }
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "budgetMonthlyCents": 0
+}

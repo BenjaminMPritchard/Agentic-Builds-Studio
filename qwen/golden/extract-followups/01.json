@@ -1,0 +1,10 @@
+{
+ "input": {
+  "text": "Done. Follow-up: add a test for the 0006 seed migration later. Nothing else."
+ },
+ "expect": {
+  "followups": {
+   "contains": "0006"
+  }
+ }
+}

@@ -1,0 +1,6 @@
+{
+ "input": {
+  "thread": "A: Can we ship Friday? B: Yes if the label is ready. A: Label is ready."
+ },
+ "expect": {}
+}

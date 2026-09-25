@@ -1,0 +1,68 @@
+# Proposed .studio/project.yaml for Mothers-Carpentry-Webpage.
+# Studio does NOT write into that repo on its own: this file is staged here and goes in as the
+# pilot's first small PR (a Builder, with `.studio/project.yaml` in the packet's allowed-paths).
+# Values come from the site's CLAUDE.md, Makefile, playwright config and findings.md §3/§5; file paths
+# were checked to exist on main (36e7dea). e2e_triggers are a judgement call from the checkout flow: review them.
+project:
+  slug: mothers-carpentry
+  archetype: C
+  repo: BenjaminMPritchard/Mothers-Carpentry-Webpage
+  default_branch: main
+client:
+  channel: "agentmail:studio"          # TODO(owner): confirm inbox name once created
+  contact_secret: ""                   # TODO(owner): Paperclip secret name for Terrie's contact
+commands:
+  setup: make setup
+  check: make check
+  e2e: make e2e                        # run only via /srv/studio/bin/studio-e2e
+  e2e_triggers:
+    - backend/core/payments.py
+    - backend/core/payment_views.py
+    - backend/core/stripe_webhooks.py
+    - backend/core/basket.py
+    - backend/core/basket_views.py
+    - backend/core/reservations.py
+    - backend/core/delivery.py
+    - backend/core/refunds.py
+    - frontend/e2e/**
+    - frontend/src/pages/CheckoutPage.tsx
+    - frontend/src/pages/BasketPage.tsx
+    - frontend/src/basket/**
+isolation:
+  db_name: "mc_{task}"                 # pytest-django adds test_mc_{task}; e2e uses mc_{task}_e2e
+  e2e_ports: [8001, 5174]              # fixed by the site's Playwright config (--strictPort)
+  e2e_lock: /srv/studio/locks/e2e.lock
+paths:
+  risk_paths:
+    - backend/core/payments.py
+    - backend/core/payment_views.py
+    - backend/core/stripe_webhooks.py
+    - backend/core/reservations.py
+    - backend/core/basket.py
+    - backend/core/basket_views.py
+    - backend/core/refunds.py
+    - backend/core/refund_admin.py
+    - backend/core/fulfilment.py
+    - backend/core/retention.py
+    - backend/core/collection_slots.py
+    - backend/core/delivery.py
+    - backend/core/permissions.py
+    - backend/config/settings.py        # the security parts
+    - "backend/core/migrations/*"       # money or stock migrations
+  protected_paths:
+    - CLAUDE.md
+    - .claude/**
+    - docs/PLAN.md
+    - .studio/project.yaml
+registers:
+  roadmap: 1
+  owner_questions: 4
+  director_brief: 23
+gates:
+  branch_protection: true              # a human must switch this on (guide 2.6)
+  required_checks: [check]
+  merge: human
+budget:
+  monthly_cents: 0                     # TODO(owner): per-agent budgets are in package/payloads
+env:
+  SHIPPING_PROVIDER: mock              # test keys and Parcel2Go sandbox only; no live key ever

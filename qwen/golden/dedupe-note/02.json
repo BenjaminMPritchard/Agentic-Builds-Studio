@@ -1,0 +1,11 @@
+{
+ "input": {
+  "new": "Use Sonnet for docs",
+  "existing": [
+   "Use one DB per worktree"
+  ]
+ },
+ "expect": {
+  "duplicate_of": -1
+ }
+}

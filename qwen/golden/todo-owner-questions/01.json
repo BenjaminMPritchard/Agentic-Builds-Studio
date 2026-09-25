@@ -1,0 +1,10 @@
+{
+ "input": {
+  "text": "A declined card keeps the hold (`TODO(owner)` on #4). Everything else decided."
+ },
+ "expect": {
+  "items": {
+   "contains": "declined"
+  }
+ }
+}

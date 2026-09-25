@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""The Worker's command (Paperclip `process` adapter).
+
+  qwen-run            run the task in $PAPERCLIP_TASK_ID (normal use)
+  qwen-run --score    run every job's golden cases on Ollama; enable jobs that pass >= 80%
+  qwen-run --job FILE run one job document from a file and print the result (debugging)
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib.paperclip import ApiError, Paperclip  # noqa: E402
+from lib.worker import run_job  # noqa: E402
+from qwen.jobs import load_all  # noqa: E402
+
+HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+DATA = os.environ.get("STUDIO_DATA", "/srv/studio/data")
+URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+MODEL = os.environ.get("QWEN_MODEL", "qwen3.5:4b")
+ENABLED_FILE = os.path.join(os.environ.get("STUDIO_QWEN_DIR", os.path.join(HOME, "qwen")), "enabled.json")
+
+
+def enabled_jobs():
+    try:
+        return set(json.load(open(ENABLED_FILE))["enabled"])
+    except (OSError, KeyError, ValueError):
+        return set()
+
+
+def matches(out, expect):
+    """Golden expectations: each key must equal (or, for a list, be contained in) the output."""
+    for k, want in expect.items():
+        got = out.get(k)
+        if isinstance(want, dict) and "contains" in want:
+            if not any(want["contains"].lower() in json.dumps(g).lower() for g in (got if isinstance(got, list) else [got])):
+                return False
+        elif got != want:
+            return False
+    return True
+
+
+def score(only=None):
+    jobs, result, enabled = load_all(), {}, []
+    for name, mod in sorted(jobs.items()):
+        if only and name != only:
+            continue
+        d = os.path.join(HOME, "qwen", "golden", name)
+        cases = [json.load(open(os.path.join(d, f))) for f in sorted(os.listdir(d))] if os.path.isdir(d) else []
+        passed = 0
+        for c in cases:
+            res = run_job({"job": name, "input": c["input"]}, URL, MODEL, jobs=jobs)
+            if c.get("expect_needs_human"):
+                passed += res["status"] == "needs_human"
+            else:
+                passed += res["status"] == "ok" and matches(res["output"], c.get("expect", {}))
+        rate = passed / len(cases) if cases else 0.0
+        need = 0.8
+        result[name] = {"passed": passed, "total": len(cases), "rate": round(rate, 2)}
+        print(f"{name}: {passed}/{len(cases)}")
+        auto = name not in ("mechanical-edit", "changelog-digest")
+        if auto and cases and rate >= need:
+            enabled.append(name)
+    if not only:
+        json.dump({"enabled": enabled, "pass_rate": result}, open(ENABLED_FILE, "w"), indent=2)
+        print("enabled:", ", ".join(enabled) or "(none)")
+
+
+def paperclip_task():
+    pc = Paperclip()
+    task = os.environ["PAPERCLIP_TASK_ID"]
+    ctx = pc.heartbeat_context(task)
+    try:
+        pc.checkout(task)
+    except ApiError as e:
+        if e.status == 409:
+            print("someone else has this task; stopping")  # never retry a 409
+            return 0
+        raise
+    doc = pc.get_document(task, "job")
+    if not doc:
+        pc.patch_issue(task, status="blocked", comment="No `job` document on this task.")
+        return 1
+    doc = json.loads(doc["body"]) if isinstance(doc.get("body"), str) else doc.get("body", doc)
+    res = run_job(doc, URL, MODEL, cache_dir=os.path.join(DATA, "qwen-cache"), enabled=enabled_jobs())
+    pc.put_document(task, "result", json.dumps(res, indent=2))
+    if res["status"] == "ok":
+        pc.patch_issue(task, status="done")
+    else:  # hand back to the requester with the errors
+        pc.patch_issue(task, status="todo", assigneeAgentId=doc.get("requester"),
+                       comment="Worker could not produce a checked result:\n- " + "\n- ".join(res.get("errors", [])))
+    return 0
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--score", nargs="?", const=True)
+    ap.add_argument("--job")
+    a = ap.parse_args()
+    if a.score:
+        score(None if a.score is True else a.score)
+    elif a.job:
+        print(json.dumps(run_job(json.load(open(a.job)), URL, MODEL), indent=2))
+    else:
+        sys.exit(paperclip_task())

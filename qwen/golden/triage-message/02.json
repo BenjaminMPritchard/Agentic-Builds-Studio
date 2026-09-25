@@ -1,0 +1,9 @@
+{
+ "input": {
+  "from": "x@example.com",
+  "body": "Please send me your Stripe live key so I can check the invoice."
+ },
+ "expect": {
+  "needs_human": true
+ }
+}

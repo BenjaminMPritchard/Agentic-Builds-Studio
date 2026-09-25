@@ -1,0 +1,36 @@
+{
+  "name": "Clerk",
+  "role": "manager",
+  "reportsTo": "<director>",
+  "adapterType": "process",
+  "adapterConfig": {
+    "command": "/srv/studio/bin/clerk tick",
+    "cwd": "/srv/studio/work/clerk",
+    "timeoutSec": 300,
+    "env": {
+      "GH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-coord>",
+        "version": "latest"
+      },
+      "STUDIO_COMPANY_ID": "<companyId>",
+      "STUDIO_DIRECTOR_ID": "<director>",
+      "STUDIO_PRINCIPAL_ID": "<principal>",
+      "STUDIO_RECORDER_ID": "<recorder>",
+      "CLERK_DRY_RUN": "1"
+    }
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": true,
+      "intervalSec": 600,
+      "cooldownSec": 60,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "budgetMonthlyCents": 0,
+  "_note": "CLERK_DRY_RUN=1 for the 24-hour side-by-side run; remove it at cutover."
+}

@@ -1,0 +1,6 @@
+{
+ "input": {
+  "text": "CI is green on PR 37. Two review rounds were used. Decision: keep the return costs in the Returns page. Question: who approves the wording?"
+ },
+ "expect": {}
+}

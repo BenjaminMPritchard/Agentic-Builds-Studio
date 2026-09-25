@@ -1,0 +1,8 @@
+{
+ "input": {
+  "log": "error TS2322: Type 'string' is not assignable to type 'number'.\nnpm run typecheck failed"
+ },
+ "expect": {
+  "category": "types"
+ }
+}

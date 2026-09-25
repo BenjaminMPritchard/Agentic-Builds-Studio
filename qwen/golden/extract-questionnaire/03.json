@@ -1,0 +1,8 @@
+{
+ "input": {
+  "text": "Thanks for your time."
+ },
+ "expect": {
+  "questions": []
+ }
+}

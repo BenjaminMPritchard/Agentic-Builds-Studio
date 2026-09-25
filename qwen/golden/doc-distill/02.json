@@ -1,0 +1,6 @@
+{
+ "input": {
+  "doc": "Branches are named agent/<issue>-<slug>. Commits carry a Studio-Agent trailer."
+ },
+ "expect": {}
+}

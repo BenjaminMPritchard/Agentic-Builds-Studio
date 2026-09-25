@@ -1,0 +1,6 @@
+{
+ "input": {
+  "doc": "Rule one: plan first. Rule two: one PR per issue. Rule three: never work on main."
+ },
+ "expect": {}
+}

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run by Paperclip when a task's worktree is closed. Drops only this worktree's databases.
+set -euo pipefail
+[ -f .studio-worktree ] || { echo "no .studio-worktree; nothing to drop"; exit 0; }
+DB="$(sed -n 's/^STUDIO_DB_NAME=//p' .studio-worktree)"
+[[ "$DB" =~ ^mc_[a-z0-9_]+$ || "$DB" =~ ^[a-z0-9_]+$ ]] || exit 1
+for d in "$DB" "test_$DB" "${DB}_e2e"; do
+  if [ "${STUDIO_SETUP_DRY_RUN:-0}" = 1 ]; then echo "would drop $d"; else dropdb --if-exists "$d"; fi
+done

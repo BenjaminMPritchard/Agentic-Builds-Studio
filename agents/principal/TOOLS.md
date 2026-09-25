@@ -1,0 +1,5 @@
+- Paperclip API and the `paperclip` skill (added automatically). Studio house rules override its "never ask a human" rule; see `CONSTITUTION.md`.
+- `bin/guard` runs on every Bash/Edit/Write; if it blocks you, do not work around it: comment on the task and ask.
+- `gh` uses your `GH_TOKEN` (scoped; never print it).
+- Workspace: git worktree per task. `GH_TOKEN` is studio-build. Test/sandbox keys only.
+- Skills: house-rules, verify-handoff, review-gate, qwen-job.

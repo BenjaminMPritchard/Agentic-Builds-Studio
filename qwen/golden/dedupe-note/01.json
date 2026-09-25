@@ -1,0 +1,12 @@
+{
+ "input": {
+  "new": "Keep e2e off unless checkout files change",
+  "existing": [
+   "Run e2e only when checkout paths change",
+   "Use one DB per worktree"
+  ]
+ },
+ "expect": {
+  "duplicate_of": 0
+ }
+}

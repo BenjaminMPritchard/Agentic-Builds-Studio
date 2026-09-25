@@ -1,0 +1,8 @@
+{
+ "input": {
+  "log": "FAILED core/tests/test_basket.py::test_add - AssertionError: assert 2 == 1"
+ },
+ "expect": {
+  "category": "test-failure"
+ }
+}

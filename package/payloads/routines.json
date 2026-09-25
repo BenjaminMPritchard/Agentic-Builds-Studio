@@ -1,0 +1,24 @@
+{
+  "routines": [
+    {
+      "name": "Daily digest",
+      "assignee": "Clerk",
+      "cronExpression": "40 8 * * 1-5",
+      "timezone": "Europe/London",
+      "activityGatePolicy": "require_external_activity",
+      "concurrencyPolicy": "coalesce_if_active",
+      "catchUpPolicy": "skip_missed"
+    },
+    {
+      "name": "Weekly backup and cost report",
+      "assignee": "Clerk",
+      "cronExpression": "0 9 * * 0",
+      "timezone": "Europe/London",
+      "concurrencyPolicy": "coalesce_if_active",
+      "catchUpPolicy": "skip_missed",
+      "command": "clerk weekly",
+      "_note": "TODO(check): a process-adapter routine passes its arguments how? If not, add a second Clerk agent or a wrapper."
+    }
+  ],
+  "_note": "No routine ever wakes the Director on a timer."
+}

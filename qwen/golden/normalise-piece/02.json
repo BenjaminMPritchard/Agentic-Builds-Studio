@@ -1,0 +1,9 @@
+{
+ "input": {
+  "text": "Pine chest of drawers - \u00a31,200.00 - 1m long, 45cm deep, 80cm high"
+ },
+ "expect": {
+  "price_pence": 120000,
+  "length_cm": 100
+ }
+}

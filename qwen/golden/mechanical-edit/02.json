@@ -1,0 +1,9 @@
+{
+ "input": {
+  "text": "a-b-c",
+  "instruction": "Replace dashes with underscores."
+ },
+ "expect": {
+  "edited": "a_b_c"
+ }
+}

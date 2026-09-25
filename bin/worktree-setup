@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Run by Paperclip inside a new task worktree. Gives the worktree its own databases.
+# Reads the project's settings from .studio/project.yaml (db_name, setup commands).
+set -euo pipefail
+WT="$(basename "$PWD")"
+NAME="$(printf '%s' "$WT" | tr -c 'a-zA-Z0-9' '_' | tr 'A-Z' 'a-z' | cut -c1-40)"
+DB_PATTERN="$(grep -E '^\s*db_name:' .studio/project.yaml 2>/dev/null | head -1 | sed -E 's/.*db_name:\s*"?([^"]*)"?.*/\1/' || true)"
+TOKEN="{task}"; DEFAULT="mc_$TOKEN"; DB="${DB_PATTERN:-$DEFAULT}"; DB="${DB//"$TOKEN"/$NAME}"
+[[ "$DB" =~ ^[a-z0-9_]+$ ]] || { echo "bad database name: $DB" >&2; exit 1; }
+echo "worktree $WT -> database $DB"
+[ -f .env ] || { [ -f .env.example ] && cp .env.example .env; }
+if [ -f .env ]; then
+  if grep -q '^DATABASE_URL=' .env; then
+    sed -i -E "s#^(DATABASE_URL=.*/)[^/]+\$#\1${DB}#" .env
+  else
+    echo "DATABASE_URL=postgres://mothers_carpentry:mothers_carpentry@127.0.0.1:5432/${DB}" >> .env
+  fi
+fi
+# SHIPPING_PROVIDER=mock and test keys come from the project env in Paperclip.
+echo "STUDIO_DB_NAME=$DB" > .studio-worktree
+if [ "${STUDIO_SETUP_DRY_RUN:-0}" = 1 ]; then echo "dry run: skipping create/install"; exit 0; fi
+createdb "$DB" 2>/dev/null || true
+[ -d backend ] && (cd backend && uv sync)
+[ -d frontend ] && (cd frontend && npm ci)
+[ -d backend ] && (cd backend && uv run python manage.py migrate)

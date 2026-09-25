@@ -1,0 +1,61 @@
+{
+  "name": "Builder-2",
+  "title": "builder-2",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "claude_local",
+  "adapterConfig": {
+    "engine": "auto",
+    "dangerouslySkipPermissions": true,
+    "env": {
+      "CLAUDE_CODE_OAUTH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<claude-oauth>",
+        "version": "latest"
+      },
+      "GH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-build>",
+        "version": "latest"
+      }
+    },
+    "model": "claude-sonnet-5",
+    "maxTurnsPerRun": 200,
+    "timeoutSec": 5400,
+    "extraArgs": [
+      "--settings",
+      "/srv/studio/claude/builder.json"
+    ],
+    "effort": "medium",
+    "workspaceStrategy": "git_worktree"
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "budgetMonthlyCents": 12500,
+  "instructions": {
+    "mode": "external",
+    "rootPath": "/srv/studio/company/agents/builder-2"
+  },
+  "desiredSkills": [
+    "studio-house-rules",
+    "verify-handoff",
+    "qwen-job",
+    "frontend-design",
+    "design-critique",
+    "ux-copy",
+    "accessibility-review",
+    "seo-ai-visibility"
+  ]
+}

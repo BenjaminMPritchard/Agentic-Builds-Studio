@@ -1,0 +1,9 @@
+{
+ "input": {
+  "text": "foo bar",
+  "instruction": "Uppercase the word foo."
+ },
+ "expect": {
+  "edited": "FOO bar"
+ }
+}

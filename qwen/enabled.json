@@ -1,0 +1,79 @@
+{
+  "enabled": [
+    "classify-failure",
+    "doc-distill",
+    "extract-followups",
+    "extract-lessons",
+    "extract-questionnaire",
+    "summarise-comment",
+    "thread-digest",
+    "todo-owner-questions"
+  ],
+  "pass_rate": {
+    "changelog-digest": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "classify-failure": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "dedupe-note": {
+      "passed": 2,
+      "total": 3,
+      "rate": 0.67
+    },
+    "doc-distill": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "extract-followups": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "extract-lessons": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "extract-questionnaire": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "mechanical-edit": {
+      "passed": 2,
+      "total": 3,
+      "rate": 0.67
+    },
+    "normalise-piece": {
+      "passed": 2,
+      "total": 3,
+      "rate": 0.67
+    },
+    "summarise-comment": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "thread-digest": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "todo-owner-questions": {
+      "passed": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "triage-message": {
+      "passed": 2,
+      "total": 3,
+      "rate": 0.67
+    }
+  }
+}

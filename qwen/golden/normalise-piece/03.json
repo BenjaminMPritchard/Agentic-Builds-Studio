@@ -1,0 +1,8 @@
+{
+ "input": {
+  "text": "Mystery stool, price to be confirmed"
+ },
+ "expect": {
+  "price_pence": 0
+ }
+}

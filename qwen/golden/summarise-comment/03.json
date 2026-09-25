@@ -1,0 +1,6 @@
+{
+ "input": {
+  "text": "Stock is 1 per piece. Reservation lasts 15 minutes. Decision: no customer accounts."
+ },
+ "expect": {}
+}

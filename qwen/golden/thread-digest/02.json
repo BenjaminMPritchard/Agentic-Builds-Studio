@@ -1,0 +1,10 @@
+{
+ "input": {
+  "thread": "Owner asked for a darker hero photo. Builder replied with two options. Waiting for the owner."
+ },
+ "expect": {
+  "waiting_on": {
+   "contains": "owner"
+  }
+ }
+}

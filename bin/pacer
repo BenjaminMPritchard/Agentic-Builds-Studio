@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""`pacer status`: prints whether heavy Claude work may start; exit 0 = yes, 1 = held."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import pacer  # noqa: E402
+
+st = pacer.load(os.path.join(os.environ.get("STUDIO_DATA", "/srv/studio/data"), "clerk-state.json"))
+ok, why = pacer.heavy_allowed(st, 0)  # the Clerk records live counts in state; this checks the hold
+print(("allowed" if st.get("heavy_allowed", ok) and ok else "held") + f": {st.get('heavy_reason', why)}")
+sys.exit(0 if st.get("heavy_allowed", ok) and ok else 1)

@@ -1,0 +1,9 @@
+{
+ "input": {
+  "from": "mailer-daemon@example.com",
+  "body": "Delivery failed: mailbox full."
+ },
+ "expect": {
+  "intent": "bounce"
+ }
+}

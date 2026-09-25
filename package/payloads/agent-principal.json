@@ -1,0 +1,57 @@
+{
+  "name": "Principal",
+  "title": "principal",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "claude_local",
+  "adapterConfig": {
+    "engine": "auto",
+    "dangerouslySkipPermissions": true,
+    "env": {
+      "CLAUDE_CODE_OAUTH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<claude-oauth>",
+        "version": "latest"
+      },
+      "GH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-build>",
+        "version": "latest"
+      }
+    },
+    "model": "claude-opus-5-5",
+    "maxTurnsPerRun": 200,
+    "timeoutSec": 5400,
+    "extraArgs": [
+      "--settings",
+      "/srv/studio/claude/principal.json"
+    ],
+    "effort": "high",
+    "workspaceStrategy": "git_worktree"
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "budgetMonthlyCents": 30000,
+  "instructions": {
+    "mode": "external",
+    "rootPath": "/srv/studio/company/agents/principal"
+  },
+  "desiredSkills": [
+    "studio-house-rules",
+    "verify-handoff",
+    "review-gate",
+    "qwen-job"
+  ]
+}

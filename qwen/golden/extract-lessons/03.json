@@ -1,0 +1,6 @@
+{
+ "input": {
+  "notes": "- Long sessions were expensive because the whole context was re-read."
+ },
+ "expect": {}
+}

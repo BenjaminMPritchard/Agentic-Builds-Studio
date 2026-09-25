@@ -1,0 +1,6 @@
+{
+ "input": {
+  "changes": "Add collection slots; fix pallet seed; update Returns page wording"
+ },
+ "expect": {}
+}

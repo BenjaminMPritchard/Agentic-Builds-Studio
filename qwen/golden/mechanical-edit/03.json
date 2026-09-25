@@ -1,0 +1,9 @@
+{
+ "input": {
+  "text": "one two",
+  "instruction": "Swap the words."
+ },
+ "expect": {
+  "edited": "two one"
+ }
+}

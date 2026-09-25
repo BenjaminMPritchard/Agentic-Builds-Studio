@@ -1,0 +1,21 @@
+# Seeded from findings.md §3.2. The Recorder maintains this file.
+- id: L1
+  lesson: Coordination cost more than building; the cause was a long-context Opus session polled every hour.
+  evidence: "findings.md §3.1: $3.40/hour idle; planning was 54% of spend"
+  metric: director_share_of_spend
+  seen_in: [all]
+- id: L2
+  lesson: Independent review catches real bugs (price_pence, 3b's ten fixes, Phase 5 double payment).
+  evidence: "findings.md §3.2 item 4"
+  metric: review_findings_per_pr
+  seen_in: [2, 3b, 5]
+- id: L3
+  lesson: Choose the look early; restyling every page after 6b was avoidable.
+  evidence: "findings.md §3.2 item 6"
+  metric: rework_after_design
+  seen_in: [6b]
+- id: L4
+  lesson: Ask the owner early with a form; it prevented stalls.
+  evidence: "findings.md §3.2 item 8"
+  metric: human_wait_hours
+  seen_in: [4]

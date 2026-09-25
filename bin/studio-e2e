@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The only way agents run end-to-end tests. The site's e2e uses fixed ports (8001/5174)
+# and recreates its e2e database, so only one run may happen at a time.
+set -euo pipefail
+LOCK="${STUDIO_LOCKS:-/srv/studio/locks}/e2e.lock"
+exec flock --timeout "${STUDIO_E2E_WAIT:-1800}" "$LOCK" make e2e "$@"

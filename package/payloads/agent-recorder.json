@@ -1,0 +1,55 @@
+{
+  "name": "Recorder",
+  "title": "recorder",
+  "role": "engineer",
+  "reportsTo": null,
+  "adapterType": "claude_local",
+  "adapterConfig": {
+    "engine": "auto",
+    "dangerouslySkipPermissions": true,
+    "env": {
+      "CLAUDE_CODE_OAUTH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<claude-oauth>",
+        "version": "latest"
+      },
+      "GH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-ops>",
+        "version": "latest"
+      }
+    },
+    "model": "claude-sonnet-5",
+    "maxTurnsPerRun": 60,
+    "timeoutSec": 1800,
+    "extraArgs": [
+      "--settings",
+      "/srv/studio/claude/liaison.json"
+    ],
+    "effort": "low",
+    "cwd": "/srv/studio/work/recorder"
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "budgetMonthlyCents": 1500,
+  "instructions": {
+    "mode": "external",
+    "rootPath": "/srv/studio/company/agents/recorder"
+  },
+  "desiredSkills": [
+    "studio-house-rules"
+  ],
+  "_note": "Provision via POST /api/companies/:companyId/built-in-agents/learning/provision with adapterType/adapterConfig from this file. TODO(check) it can follow the journal/lessons format; if not, create a normal claude_local agent named Recorder from this same payload."
+}

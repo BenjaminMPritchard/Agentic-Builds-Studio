@@ -1,0 +1,9 @@
+{
+ "input": {
+  "text": "Oak rocking chair, \u00a3145, 60cm wide, 90cm tall, 55cm deep"
+ },
+ "expect": {
+  "price_pence": 14500,
+  "width_cm": 60
+ }
+}

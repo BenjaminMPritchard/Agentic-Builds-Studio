@@ -1,0 +1,56 @@
+{
+  "name": "Liaison",
+  "title": "liaison",
+  "role": "manager",
+  "reportsTo": "<director>",
+  "adapterType": "claude_local",
+  "adapterConfig": {
+    "engine": "auto",
+    "dangerouslySkipPermissions": true,
+    "env": {
+      "CLAUDE_CODE_OAUTH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<claude-oauth>",
+        "version": "latest"
+      },
+      "GH_TOKEN": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-coord>",
+        "version": "latest"
+      }
+    },
+    "model": "claude-sonnet-5",
+    "maxTurnsPerRun": 40,
+    "timeoutSec": 900,
+    "extraArgs": [
+      "--settings",
+      "/srv/studio/claude/liaison.json"
+    ],
+    "effort": "low",
+    "cwd": "/srv/studio/work/liaison"
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": {
+        "enabled": true
+      }
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "budgetMonthlyCents": 3000,
+  "instructions": {
+    "mode": "external",
+    "rootPath": "/srv/studio/company/agents/liaison"
+  },
+  "desiredSkills": [
+    "studio-house-rules",
+    "client-comms",
+    "qwen-job"
+  ]
+}
