@@ -53,6 +53,15 @@ Tests use a fake Paperclip API and a fake Ollama (`tests/fakes.py`).
 5. **Guide Part 6**: Mothers project; open the first small PR adding `.studio/project.yaml`; create the work items in `projects/mothers-carpentry/work-items.md`.
 6. **Guide Part 8**: 24-hour side-by-side with `CLERK_DRY_RUN=1`, then the W2 pilot, then cutover.
 
+### Paperclip install notes (found during setup, 2026-09-26)
+
+- `sudo -iu paperclip bash -c '...'` expands `$vars` in the login shell first; put multi-step checks in a script file and run `sudo -u paperclip bash file.sh`.
+- `npx paperclipai onboard --yes` can fail to start with `Postgres init script exited with code 127`:
+  the bundled embedded Postgres needs `libicuuc.so.60` symlinks that its `postinstall` did not create.
+  Fix: `cd ~/.npm/_npx/*/node_modules/@embedded-postgres/linux-x64 && node scripts/hydrate-symlinks.js` as the `paperclip` user, then `npx paperclipai run`.
+- Doctor reports no usable systemd *user* manager for `paperclip`, so `deploy/paperclip.service` is a system unit (`User=paperclip`); install steps are in its header.
+- A leftover embedded Postgres from earlier experiments can hold port 54329; Paperclip moves to the next free port.
+
 Run `bin/qwen-run --score` on the target machine and read `qwen/enabled.json` before relying on the Worker.
 
 ## Open items (marked `TODO(check)` in the code)
