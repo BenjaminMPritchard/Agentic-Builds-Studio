@@ -13,8 +13,12 @@ run() { if [ $APPLY = 1 ]; then "$@"; else echo "would: $*"; fi; }
 for d in work locks data data/log data/backup work/director work/liaison work/architect work/recorder work/clerk work/worker; do run mkdir -p "$ROOT/$d"; done
 run chmod +x "$SRC"/bin/*
 [ "$SRC" = "$ROOT/company" ] || echo "note: checkout is $SRC, guide expects $ROOT/company"
-run ln -sfn "$SRC/bin" "$ROOT/bin"
-run ln -sfn "$SRC/claude" "$ROOT/claude"
+link() {  # replace an empty directory or an old link with a link; refuse to touch a non-empty directory
+  if [ -d "$2" ] && [ ! -L "$2" ]; then run rmdir "$2" || { echo "$2 is a non-empty directory; move it aside" >&2; exit 1; }; fi
+  run ln -sfnT "$1" "$2"
+}
+link "$SRC/bin" "$ROOT/bin"
+link "$SRC/claude" "$ROOT/claude"
 if [ -e "$CLAUDE_HOME/settings.json" ] && ! cmp -s "$SRC/claude/settings.json" "$CLAUDE_HOME/settings.json"; then
   echo "existing $CLAUDE_HOME/settings.json differs: NOT overwritten. Merge $SRC/claude/settings.json by hand."
 else
