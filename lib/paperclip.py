@@ -1,7 +1,7 @@
 """Small Paperclip API client (stdlib only). Every endpoint used by the Studio scripts lives here.
 
-Endpoints marked TODO(check) are not confirmed in the docs the guide was written from
-(v1-setup-guide.md, "Things to check"). Verify them against the running instance, fix the
+Paths were checked against the live instance's /api/openapi.json (v2026.916.1) on 2026-09-26.
+Response shapes are not in the spec; ones marked TODO(check) still need a live look. Verify them against the running instance, fix the
 path here, and nothing else needs to change. The tests use fake_paperclip.py, which mirrors
 these paths.
 """
@@ -44,9 +44,11 @@ class Paperclip:
     def heartbeat_context(self, issue_id):
         return self.call("GET", f"/api/issues/{issue_id}/heartbeat-context")
 
-    def checkout(self, issue_id, agent_id=None):
+    def checkout(self, issue_id, agent_id=None, expected=None):
         # A 409 means someone else has it: never retry.
-        return self.call("POST", f"/api/issues/{issue_id}/checkout", {"agentId": agent_id or os.environ.get("PAPERCLIP_AGENT_ID")})
+        return self.call("POST", f"/api/issues/{issue_id}/checkout",
+                         {"agentId": agent_id or os.environ.get("PAPERCLIP_AGENT_ID"),
+                          "expectedStatuses": expected or ["backlog", "todo", "in_progress", "in_review", "blocked"]})
 
     def patch_issue(self, issue_id, **fields):
         return self.call("PATCH", f"/api/issues/{issue_id}", fields)
@@ -57,7 +59,7 @@ class Paperclip:
     def costs_by_project(self, company_id):
         return self.call("GET", f"/api/companies/{company_id}/costs/by-project")
 
-    # --- TODO(check): paths not confirmed -----------------------------------------
+    # --- paths confirmed in OpenAPI; TODO(check) response shapes ---------------------
     def list_issues(self, company_id, status=None):
         q = f"?status={status}" if status else ""
         r = self.call("GET", f"/api/companies/{company_id}/issues{q}")
@@ -72,7 +74,7 @@ class Paperclip:
             raise
 
     def put_document(self, issue_id, key, body):
-        return self.call("PUT", f"/api/issues/{issue_id}/documents/{key}", {"body": body})
+        return self.call("PUT", f"/api/issues/{issue_id}/documents/{key}", {"format": "markdown", "body": body})
 
     def comment(self, issue_id, text):
         return self.call("POST", f"/api/issues/{issue_id}/comments", {"body": text})
@@ -86,9 +88,14 @@ class Paperclip:
         return r.get("runs", r) if isinstance(r, dict) else r
 
     # --- CLI wrappers (documented) --------------------------------------------------
-    def wake_agent(self, agent_id, fresh=True):
-        cmd = [self.cli, "agent", "wake", agent_id] + (["--force-fresh-session"] if fresh else [])
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60).returncode == 0
+    def wake_agent(self, agent_id, fresh=True, reason="clerk"):
+        """POST /api/agents/{id}/wakeup (in the live OpenAPI spec). Returns True on success."""
+        try:
+            self.call("POST", f"/api/agents/{agent_id}/wakeup", {
+                "source": "automation", "triggerDetail": "system", "reason": reason, "forceFreshSession": fresh})
+            return True
+        except ApiError:
+            return False
 
     def export_company(self, company_id, out):
         return subprocess.run([self.cli, "company", "export", company_id, "--out", out],
