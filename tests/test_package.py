@@ -39,6 +39,10 @@ class Structure(unittest.TestCase):
             if a["adapterType"] == "claude_local":
                 self.assertIn("model", a["adapterConfig"], n)  # blank model defaults to Opus
                 self.assertIs(a["permissions"]["canCreateAgents"], False, n)
+        for n in ("architect", "recorder"):
+            env = m[n]["adapterConfig"]["env"]
+            self.assertIn("gh-studio-ops-internal", env["GH_TOKEN"]["secretId"])
+            self.assertIn("gh-studio-ops-external", env["GH_TOKEN_SITE_READ"]["secretId"])
         routines = json.load(open(p("package/payloads/routines.json")))["routines"]
         self.assertNotIn("Director", [r["assignee"] for r in routines])
 

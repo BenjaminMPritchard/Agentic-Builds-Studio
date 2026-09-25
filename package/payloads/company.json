@@ -53,11 +53,18 @@
     "claude-oauth",
     "gh-studio-build",
     "gh-studio-coord",
-    "gh-studio-ops",
+    "gh-studio-ops-internal",
+    "gh-studio-ops-external",
     "dd-stripe-test-sk",
     "dd-stripe-test-pk",
     "dd-p2g-sandbox-id",
     "dd-p2g-sandbox-secret"
   ],
-  "secrets_rule": "Test/sandbox values only. No live key ever goes into Paperclip."
+  "secrets_rule": "Test/sandbox values only. No live key ever goes into Paperclip.",
+  "github_tokens": {
+    "studio-build": "Builder, Principal: site repos RW",
+    "studio-coord": "Director, Clerk, Liaison: site repos + studio repo, issues RW, rest R",
+    "studio-ops-internal": "Recorder, Architect: studio repo RW (contents, PRs)",
+    "studio-ops-external": "Recorder, Architect: site repos, Contents R only"
+  }
 }

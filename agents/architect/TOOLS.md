@@ -1,4 +1,4 @@
 - Paperclip API and the `paperclip` skill (added automatically). Studio house rules override its "never ask a human" rule; see `CONSTITUTION.md`.
 - `bin/guard` runs on every Bash/Edit/Write; if it blocks you, do not work around it: comment on the task and ask.
 - `gh` uses your `GH_TOKEN` (scoped; never print it).
-- Working directory: a clone of studio-company. `GH_TOKEN` is studio-ops. Run with `--effort xhigh`; leave the adapter's effort field unset.
+- Working directory: a clone of studio-company. `GH_TOKEN` is studio-ops-internal (studio repo, read/write). `GH_TOKEN_SITE_READ` is studio-ops-external (site repos, read only): use it as `GH_TOKEN=$GH_TOKEN_SITE_READ gh ...` when reading a site repo. Run with `--effort xhigh`; leave the adapter's effort field unset.

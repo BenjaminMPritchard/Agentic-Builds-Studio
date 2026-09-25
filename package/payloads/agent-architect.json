@@ -15,7 +15,12 @@
       },
       "GH_TOKEN": {
         "type": "secret_ref",
-        "secretId": "<gh-studio-ops>",
+        "secretId": "<gh-studio-ops-internal>",
+        "version": "latest"
+      },
+      "GH_TOKEN_SITE_READ": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-ops-external>",
         "version": "latest"
       }
     },
