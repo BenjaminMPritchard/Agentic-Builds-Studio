@@ -95,6 +95,16 @@ class ClerkTests(unittest.TestCase):
         log = open(os.path.join(self.tmp.name, "log", "studio.jsonl")).read()
         self.assertIn("step_error", log); self.assertIn('"event": "digest"', log)
 
+    def test_client_matches_live_api_shapes(self):
+        self.fp.add(id="t", title="T", status="todo")
+        self.pc.put_document("t", "digest", "hello")          # 400 from the fake unless format=markdown
+        self.assertEqual(self.pc.get_document("t", "digest")["body"], "hello")
+        self.pc.checkout("t", agent_id="a1")                   # 400 unless agentId+expectedStatuses
+        from lib.paperclip import Paperclip
+        real = Paperclip(self.fp.url, "k")
+        self.assertTrue(real.wake_agent("a1", fresh=True))
+        self.assertEqual(self.fp.wakes[-1][1]["forceFreshSession"], True)
+
     def test_pacer(self):
         agents = {"a1": "Builder-1", "a2": "Builder-2", "p": "Principal"}
         runs = [{"agentId": "a1", "status": "running"}, {"agentId": "a2", "status": "running"}]

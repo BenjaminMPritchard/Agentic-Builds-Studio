@@ -19,7 +19,7 @@ class Server:
 class FakePaperclip(Server):
     def __init__(self):
         self.issues, self.docs, self.comments, self.interactions_ = {}, {}, [], {}
-        self.agents, self.runs_, self.patches, self.checkouts = [], [], [], []
+        self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
         super().__init__(self._handler)
 
     def add(self, **i):
@@ -53,8 +53,9 @@ class FakePaperclip(Server):
                 s.send(404, {})
 
             def do_PUT(s):
-                m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", s.path)
-                fake.docs[(m[1], m[2])] = s.body()["body"]; s.send(200, {})
+                m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", s.path); b = s.body()
+                if b.get("format") != "markdown" or "body" not in b: return s.send(400, {"error": "format+body required"})
+                fake.docs[(m[1], m[2])] = b["body"]; s.send(200, {})
 
             def do_PATCH(s):
                 m = re.fullmatch(r"/api/issues/(\w+)", s.path); b = s.body()
@@ -67,8 +68,13 @@ class FakePaperclip(Server):
                 if m: fake.comments.append((m[1], b["body"])); return s.send(200, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/checkout", s.path)
                 if m:
+                    if "agentId" not in b or "expectedStatuses" not in b: return s.send(400, {"error": "agentId+expectedStatuses"})
                     if m[1] in fake.checkouts: return s.send(409, {"error": "taken"})
                     fake.checkouts.append(m[1]); return s.send(200, {})
+                m = re.fullmatch(r"/api/agents/(\w+)/wakeup", s.path)
+                if m:
+                    if "forceFreshSession" not in b: return s.send(400, {"error": "forceFreshSession required"})
+                    fake.wakes.append((m[1], b)); return s.send(200, {})
                 s.send(404, {})
         return H
 

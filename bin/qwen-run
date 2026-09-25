@@ -78,7 +78,7 @@ def paperclip_task():
             print("someone else has this task; stopping")  # never retry a 409
             return 0
         raise
-    doc = pc.get_document(task, "job")
+    doc = pc.get_document(task, "job")  # TODO(check): document response field names
     if not doc:
         pc.patch_issue(task, status="blocked", comment="No `job` document on this task.")
         return 1
