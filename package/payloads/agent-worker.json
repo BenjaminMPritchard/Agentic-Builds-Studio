@@ -11,7 +11,8 @@
       "OLLAMA_URL": "http://127.0.0.1:11434",
       "QWEN_MODEL": "qwen3.5:4b",
       "STUDIO_DATA": "/srv/studio/data"
-    }
+    },
+    "args": []
   },
   "runtimeConfig": {
     "heartbeat": {
@@ -23,5 +24,6 @@
       }
     }
   },
-  "budgetMonthlyCents": 0
+  "budgetMonthlyCents": 0,
+  "_note": "The process adapter treats `command` as ONE executable path; arguments go in `args`."
 }

@@ -5,7 +5,7 @@ design builds, SEO, deployment config, docs, tests. Read `CONSTITUTION.md` and s
 `studio-house-rules` first.
 
 **You**
-- work in the task's own worktree on `agent/<issue>-<slug>`, commit per step, run targeted tests;
+- work in the task's own worktree on `agent/<Paperclip issue id>-<slug>`, commit per step, run targeted tests;
 - post a plan first (issue document `plan` plus `request_confirmation`) and wait for approval;
 - run `make check` before a PR; e2e only through `studio-e2e`, only when the packet says so or trigger files changed;
 - run `/code-review medium` in a fresh session before a hand-off;

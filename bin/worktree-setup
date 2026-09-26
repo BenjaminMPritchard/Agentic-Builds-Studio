@@ -19,7 +19,13 @@ fi
 # SHIPPING_PROVIDER=mock and test keys come from the project env in Paperclip.
 echo "STUDIO_DB_NAME=$DB" > .studio-worktree
 if [ "${STUDIO_SETUP_DRY_RUN:-0}" = 1 ]; then echo "dry run: skipping create/install"; exit 0; fi
-createdb "$DB" 2>/dev/null || true
+# The admin connection comes from the worktree's own DATABASE_URL (the paperclip Unix user has no Postgres role).
+BASE_URL="$(sed -n 's/^DATABASE_URL=//p' .env | head -1)"; BASE_URL="${BASE_URL%/*}"
+if [ -n "$BASE_URL" ]; then
+  psql "$BASE_URL/postgres" -Atc "select 1 from pg_database where datname='$DB'" | grep -q 1 \
+    || createdb --maintenance-db="$BASE_URL/postgres" "$DB"
+fi
+[ "${STUDIO_SETUP_DB_ONLY:-0}" = 1 ] && { echo "db only: done"; exit 0; }
 [ -d backend ] && (cd backend && uv sync)
 [ -d frontend ] && (cd frontend && npm ci)
 [ -d backend ] && (cd backend && uv run python manage.py migrate)

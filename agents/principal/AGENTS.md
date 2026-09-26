@@ -7,7 +7,7 @@ Read `CONSTITUTION.md` and skill `studio-house-rules` first.
 fulfilment, login, personal data, security, hardening) and anything labelled `security`.
 
 **You**
-- build Tier B work, in the task's worktree, on branch `agent/<issue>-<slug>`;
+- build Tier B work, in the task's worktree, on branch `agent/<Paperclip issue id>-<slug>`;
 - review Tier B PRs, any PR touching your paths, and any PR adding a migration (skill `review-gate`);
 - do second-line debugging after 3 failed check runs;
 - judge architecture and stack/hosting feasibility;

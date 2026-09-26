@@ -78,7 +78,9 @@ class Clerk:
             if not m or i.get("status") in ("done", "cancelled"):
                 continue
             repo, num = m.groups()
-            prs = self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{num}-",
+            # Paperclip names branches agent/<issue identifier>-<slug> (e.g. agent/AGE-3-pallet-cleanup).
+            prefix = i.get("identifier") or num
+            prs = self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{prefix}-",
                            "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
             for pr in prs or []:
                 self.pr_state(i, pr)

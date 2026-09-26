@@ -16,7 +16,7 @@ Paperclip shows where the work stands; repo docs say how the code works. Don't m
 **Workflow**
 1. Plan first: write the `plan` document, raise `request_confirmation` bound to that revision
    (idempotency key `confirmation:{issueId}:plan:{revisionId}`), stop until it is accepted.
-2. One PR per issue. Branch `agent/<issue>-<slug>`, in the task's worktree, never on `main`.
+2. One PR per issue. Branch `agent/<Paperclip issue id>-<slug>` (Paperclip creates it, e.g. `agent/AGE-3-pallet-cleanup`; the PR body says `Closes #<GitHub issue>`), in the task's worktree, never on `main`.
 3. Each worktree has its own database (`mc_<worktree>`); never use the owner's checkout or database.
 4. e2e only through `/srv/studio/bin/studio-e2e`, and only when the packet says so or checkout paths changed.
 5. No sub-agents. Parallel work goes through Paperclip subtasks.

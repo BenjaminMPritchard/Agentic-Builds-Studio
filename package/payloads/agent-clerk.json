@@ -4,7 +4,7 @@
   "reportsTo": "<director>",
   "adapterType": "process",
   "adapterConfig": {
-    "command": "/srv/studio/bin/clerk tick",
+    "command": "/srv/studio/bin/clerk",
     "cwd": "/srv/studio/work/clerk",
     "timeoutSec": 300,
     "env": {
@@ -19,7 +19,10 @@
       "STUDIO_RECORDER_ID": "<recorder>",
       "CLERK_DRY_RUN": "1",
       "STUDIO_DATA": "/srv/studio/data"
-    }
+    },
+    "args": [
+      "tick"
+    ]
   },
   "runtimeConfig": {
     "heartbeat": {
@@ -33,5 +36,5 @@
     }
   },
   "budgetMonthlyCents": 0,
-  "_note": "CLERK_DRY_RUN=1 for the 24-hour side-by-side run; remove it at cutover."
+  "_note": "The process adapter treats `command` as ONE executable path; arguments go in `args`."
 }

@@ -79,6 +79,13 @@ class ClerkTests(unittest.TestCase):
         self.assertEqual(self.gh_comments[-1][:2], ("o/r", "5"))
         self.assertIn(("a1", False), self.woken)
 
+    def test_branch_search_uses_the_paperclip_identifier(self):
+        seen = []
+        self.fp.add(id="t", title="T", status="in_progress", identifier="AGE-7", description="GitHub: o/r#5")
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: seen.append(a[a.index("--search") + 1]) or [])
+        c.tick()
+        self.assertEqual(seen, ["head:agent/AGE-7-"])
+
     def test_pending_plan_is_flagged_not_actioned(self):
         self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
         self.fp.docs[("t", "plan")] = "x"
