@@ -87,6 +87,15 @@ class Paperclip:
         r = self.call("GET", f"/api/companies/{company_id}/heartbeat-runs?limit={limit}")
         return r.get("runs", r) if isinstance(r, dict) else r
 
+    def quota_windows(self, company_id):
+        return self.call("GET", f"/api/companies/{company_id}/costs/quota-windows")
+
+    def pause_agent(self, agent_id):
+        return self.call("POST", f"/api/agents/{agent_id}/pause")
+
+    def resume_agent(self, agent_id):
+        return self.call("POST", f"/api/agents/{agent_id}/resume")
+
     # --- CLI wrappers (documented) --------------------------------------------------
     def wake_agent(self, agent_id, fresh=True, reason="clerk"):
         """POST /api/agents/{id}/wakeup (in the live OpenAPI spec). Returns True on success."""
