@@ -28,7 +28,6 @@ PAPERCLIP_ADMIN = re.compile(
     r"paperclipai\s+(company\s+(import|delete)|secret|budget|agent\s+(create|update|delete|config|skills:sync)|"
     r"instance|approval\s+(approve|resolve))")
 DNS = re.compile(r"\b(nsupdate|flarectl|cloudflared?\s+dns|doctl\s+compute\s+domain|aws\s+route53|gcloud\s+dns)\b")
-DROP = re.compile(r"(dropdb\s+(?:\S+\s+)*?(\S+)|DROP\s+DATABASE\s+(?:IF\s+EXISTS\s+)?\"?(\w+))", re.I)
 SAFE_DB = re.compile(r"^(mc_|test_mc_).*|.*_e2e$")
 
 # TODO(check): the endpoint and field names below are unverified against the installed Paperclip.
@@ -136,13 +135,37 @@ def check_bash(cmd, cwd):
         block("changing Paperclip configuration is outside agent authority")
     if DNS.search(cmd):
         block("DNS changes are human-only")
-    for m in DROP.finditer(cmd):
-        name = m.group(2) or m.group(3)
-        if name and not SAFE_DB.match(name):
+    for name in dropped_databases(cmd):
+        if not SAFE_DB.match(name):
             block(f"dropping database '{name}' (only mc_*, test_mc_*, *_e2e allowed)")
     for path in protected_writes(cmd, cwd):
         if any(match(path, n) for n in NEVER_ALLOWED) or not any(match(path, a) for a in allowed_paths(cwd)):
             block(f"command appears to modify protected path {path}")
+
+
+DB_FLAGS_WITH_VALUE = {"-h", "-p", "-U", "-d", "--host", "--port", "--username", "--maintenance-db"}
+
+
+def dropped_databases(cmd):
+    """Database names a command drops: `dropdb [flags] NAME` (flags and their values skipped) and SQL DROP DATABASE."""
+    names = []
+    for seg in re.split(r"&&|\|\||;|\n|\|", HEREDOC.sub("", cmd)):
+        try:
+            toks = shlex.split(seg)
+        except ValueError:
+            toks = seg.split()
+        if toks and os.path.basename(toks[0]) == "dropdb":
+            args, skip = [], False
+            for t in toks[1:]:
+                if skip:
+                    skip = False
+                elif t in DB_FLAGS_WITH_VALUE:
+                    skip = True
+                elif not t.startswith("-"):
+                    args.append(t)
+            names += args[-1:]
+    names += [m.group(1) for m in re.finditer(r"DROP\s+DATABASE\s+(?:IF\s+EXISTS\s+)?\"?(\w+)", cmd, re.I)]
+    return names
 
 
 def protected_of(token, cwd):
