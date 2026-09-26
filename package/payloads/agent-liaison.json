@@ -1,7 +1,7 @@
 {
   "name": "Liaison",
   "title": "liaison",
-  "role": "manager",
+  "role": "general",
   "reportsTo": "<director>",
   "adapterType": "claude_local",
   "adapterConfig": {

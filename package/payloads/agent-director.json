@@ -54,5 +54,6 @@
     "project-bootstrap",
     "review-gate",
     "qwen-job"
-  ]
+  ],
+  "_note": "Never create through the UI wizard's managed AI connection: Paperclip then refuses extraArgs and env overrides (error ai_connection_incompatible) and the connection cannot be removed, only the agent recreated."
 }
