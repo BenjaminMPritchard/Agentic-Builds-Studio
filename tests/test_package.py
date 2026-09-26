@@ -15,7 +15,7 @@ class Structure(unittest.TestCase):
     def test_settings_wire_the_guard_and_deny_rules(self):
         s = json.load(open(p("claude/settings.json")))
         deny = s["permissions"]["deny"]
-        for r in ("Agent", "Bash(git push --force*)", "Bash(gh pr merge*)", "Bash(make e2e*)"):
+        for r in ("Agent", "Bash(git push --force*)", "Bash(make e2e*)"):
             self.assertIn(r, deny)
         cmds = {h["command"] for e in s["hooks"]["PreToolUse"] for h in e["hooks"]}
         self.assertEqual(cmds, {"/srv/studio/bin/guard"})

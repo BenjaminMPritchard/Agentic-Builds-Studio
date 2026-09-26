@@ -47,6 +47,28 @@ class Guard(unittest.TestCase):
     def test_push_bare_from_main(self):
         self.assertEqual(self.bash("git push", cwd=self.repo), 2)
 
+    def fake_gh(self, pr):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "gh")
+        open(path, "w").write("#!/bin/sh\ncat <<'EOF'\n" + json.dumps(pr) + "\nEOF\n")
+        os.chmod(path, 0o755)
+        return {"PATH": d + ":" + os.environ["PATH"], "STUDIO_DIRECTOR_ID": "dir", "PAPERCLIP_AGENT_ID": "dir"}
+
+    def test_director_merge_rules(self):
+        ok = {"state": "OPEN", "isDraft": False, "headRefName": "agent/AGE-4-x", "labels": [], "reviewDecision": "APPROVED",
+              "statusCheckRollup": [{"conclusion": "SUCCESS"}], "files": [{"path": "app/a.py"}],
+              "url": "https://github.com/o/mothers/pull/3"}
+        env = self.fake_gh(ok)
+        m = "gh pr merge 3 --squash --repo o/mothers"
+        self.assertEqual(self.bash(m, env=env), 0)
+        self.assertEqual(self.bash(m, env={**env, "PAPERCLIP_AGENT_ID": "someone"}), 2)      # not the Director
+        self.assertEqual(self.bash(m + " --admin", env=env), 2)
+        self.assertEqual(self.bash("gh pr merge 3 --repo o/studio-company", env=env), 2)
+        for change in ({"isDraft": True}, {"headRefName": "feature/x"}, {"labels": [{"name": "needs-human"}]},
+                       {"statusCheckRollup": [{"conclusion": "FAILURE"}]}, {"statusCheckRollup": []},
+                       {"files": [{"path": "CLAUDE.md"}]}, {"reviewDecision": "CHANGES_REQUESTED"}):
+            self.assertEqual(self.bash(m, env=self.fake_gh({**ok, **change})), 2, change)
+
     def test_merge_and_e2e(self):
         self.assertEqual(self.bash("gh pr merge 3 --squash"), 2)
         self.assertEqual(self.bash("make e2e"), 2)

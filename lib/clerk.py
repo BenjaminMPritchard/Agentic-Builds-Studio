@@ -79,11 +79,14 @@ class Clerk:
                 continue
             repo, num = m.groups()
             # Paperclip names branches agent/<issue identifier>-<slug> (e.g. agent/AGE-3-pallet-cleanup).
-            prefix = i.get("identifier") or num
-            prs = self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{prefix}-",
-                           "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
-            for pr in prs or []:
-                self.pr_state(i, pr)
+            seen_pr = set()
+            for prefix in dict.fromkeys(p for p in (i.get("identifier"), num) if p):  # builders sometimes use the GitHub number
+                prs = self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{prefix}-",
+                               "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
+                for pr in prs or []:
+                    if pr["number"] not in seen_pr:
+                        seen_pr.add(pr["number"])
+                        self.pr_state(i, pr)
 
     def pr_state(self, issue, pr):
         iid, n = issue["id"], pr["number"]

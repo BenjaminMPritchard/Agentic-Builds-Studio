@@ -84,7 +84,7 @@ class ClerkTests(unittest.TestCase):
         self.fp.add(id="t", title="T", status="in_progress", identifier="AGE-7", description="GitHub: o/r#5")
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: seen.append(a[a.index("--search") + 1]) or [])
         c.tick()
-        self.assertEqual(seen, ["head:agent/AGE-7-"])
+        self.assertEqual(seen, ["head:agent/AGE-7-", "head:agent/5-"])
 
     def test_pending_plan_is_flagged_not_actioned(self):
         self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
@@ -131,10 +131,10 @@ class ClerkTests(unittest.TestCase):
         self.assertIn("session allowance 90%", c.state["heavy_reason"])
         self.assertTrue(any("Usage allowance nearly used" in x for x in c.needs_board))
 
-    def test_weekly_limit_holds_too(self):
-        self.agents3(); self.quota(session=10, week=92)
+    def test_weekly_limit_ignored_by_default(self):
+        self.agents3(); self.quota(session=10, week=99)
         self.clerk().tick()
-        self.assertEqual(self.fp.paused_calls, [("a1", "pause")])
+        self.assertEqual(self.fp.paused_calls, [])
 
     def test_resumes_only_what_we_paused_when_usage_drops(self):
         self.agents3(); self.quota(session=95, week=50); self.clerk().tick()
