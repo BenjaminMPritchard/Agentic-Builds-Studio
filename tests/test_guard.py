@@ -102,6 +102,16 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("psql -c 'DROP DATABASE test_mc_x'"), 0)
         self.assertEqual(self.bash("psql -c 'DROP DATABASE prod'"), 2)
 
+    def test_dropdb_with_flags_checks_the_real_database_name(self):
+        for c in ["dropdb --maintenance-db=postgres://u:p@h:5432/postgres --if-exists mc_wt_x",
+                  "dropdb -h 127.0.0.1 -U mothers_carpentry --if-exists test_mc_wt_x",
+                  "dropdb --if-exists mc_wt_x_e2e && echo ok"]:
+            self.assertEqual(self.bash(c), 0, c)
+        for c in ["dropdb --maintenance-db=postgres://u:p@h/postgres mothers_carpentry",
+                  "dropdb -h 127.0.0.1 -U mothers_carpentry mothers_carpentry",
+                  "psql -c 'DROP DATABASE IF EXISTS mothers_carpentry'"]:
+            self.assertEqual(self.bash(c), 2, c)
+
     def test_email_send_requires_accepted_confirmation(self):
         status = {"v": "pending"}
 
