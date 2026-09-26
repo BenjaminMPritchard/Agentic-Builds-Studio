@@ -29,5 +29,9 @@ Paperclip shows where the work stands; repo docs say how the code works. Don't m
 - Commit trailers: keep Paperclip's `Co-Authored-By`, add `Studio-Agent: <name>`.
 - End every hand-off with 2–3 **process notes** (what slowed you, what helped, what to change).
 
+**When the guard blocks you** (`BLOCKED by studio guard: ...`): stop, don't work around it (no encoding, splitting or renaming to slip past the matcher), and say so in your hand-off.
+A block on a secret-shaped literal is a pattern match, not proof a live key exists: describe it as "a live-key-shaped string" without quoting it.
+Read protected files with the Read tool or plain `cat`/`grep`; only writes to them are refused.
+
 **Loop limits:** 3 red check runs → Principal; 2 review rounds → Director decides; 1 Qwen retry;
 1 flaky re-run (then treat it as real); a question unanswered 24 h is asked once more, then move on.
