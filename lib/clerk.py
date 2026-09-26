@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from lib import pacer
+from lib import deploy, pacer
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
@@ -29,9 +29,10 @@ def gh_json(args):
 
 class Clerk:
     def __init__(self, pc, company_id, data_dir, gh=gh_json, dry_run=False, director_id=None,
-                 principal_id=None, recorder_id=None, now=time.time):
+                 principal_id=None, recorder_id=None, now=time.time, deploy_repo=None, infra_project_id=None):
         self.pc, self.cid, self.data, self.gh, self.dry = pc, company_id, data_dir, gh, dry_run
         self.director, self.principal, self.recorder, self.now = director_id, principal_id, recorder_id, now
+        self.deploy_repo, self.infra_project = deploy_repo, infra_project_id
         self.state_path = os.path.join(data_dir, "clerk-state.json")
         self.state = pacer.load(self.state_path)
         self.needs_director, self.needs_board, self.notes = [], [], []
@@ -63,13 +64,33 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.github_sync, self.gates, self.plan_gate, self.pace, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.gates, self.plan_gate, self.pace, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
                 self.log("step_error", step=step.__name__, error=str(e)[:300])
                 self.notes.append(f"clerk step {step.__name__} failed: {str(e)[:120]}")
         self.save()
+
+    # ---- 0: keep the deployed studio-company in step with main --------------------------------
+    def deploy_sync(self, issues, by_id):
+        if not self.deploy_repo:
+            return
+        res = deploy.sync(self.deploy_repo, skip_sha=self.state.get("deploy_failed_sha"))
+        st = res["status"]
+        self.log("deploy", status=st, sha=(res.get("sha") or "")[:8])
+        if st == "updated":
+            self.state.pop("deploy_failed_sha", None)
+            changed = res["changed"]
+            self.notes.append(f"Deployed studio-company {res['sha'][:8]} ({len(changed)} files changed)")
+            if self.infra_project and any(f.startswith("skills/") for f in changed):
+                self.act("rescan-skills", self.pc.rescan_skills, self.cid, self.infra_project)
+        elif st == "tests_failed":
+            if not res.get("repeat"):
+                self.state["deploy_failed_sha"] = res["sha"]
+                self.needs_board.append(f"NOT deployed: tests fail on studio-company {res['sha'][:8]}. Fix main or revert.")
+        elif st in ("dirty", "diverged", "fetch_failed"):
+            self.notes.append(f"Deploy skipped ({st}): {res.get('detail', '')}")
 
     # ---- 1+2+5: GitHub -> Paperclip, merges, red-check loop --------------------------
     def github_sync(self, issues, by_id):

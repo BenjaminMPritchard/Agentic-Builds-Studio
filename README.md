@@ -72,3 +72,11 @@ error text and reset time), `package/payloads` (worktree policy fields, instruct
 command). Verify against the running instance (guide §10), fix the one line, re-run the tests' fakes.
 Also: writing `.studio-allowed-paths` from a task packet into a worktree is not automated yet: until it is,
 protected-path edits need `STUDIO_ALLOWED_PATHS` set by hand or the Board doing the edit.
+
+## Auto-deploy (Clerk)
+
+With `STUDIO_AUTODEPLOY=1` the Clerk runs, on every tick, `lib/deploy.py`: fetch `origin/main` of `/srv/studio/company`,
+run the test suite on the new commit in a throwaway worktree, and only then fast-forward the live copy. It never
+overwrites local edits or diverged history, reports a failing commit once (on the Board list) and waits for a newer one,
+and re-scans skills in Paperclip (`STUDIO_INFRA_PROJECT_ID`) when `skills/` changed. One-time setup: the live copy's
+`origin` must be the GitHub URL and the Clerk's `GH_TOKEN` (studio-coord) must be able to read the studio repo.
