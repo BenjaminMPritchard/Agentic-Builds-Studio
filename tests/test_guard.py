@@ -74,6 +74,18 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("echo hi >> CLAUDE.md"), 2)
         self.assertEqual(self.bash("cat CLAUDE.md"), 0)
 
+    def test_reads_and_mentions_of_protected_files_are_fine(self):
+        for c in ["cat CONSTITUTION.md 2>/dev/null | head -150; echo done", "grep -n house CLAUDE.md", "head -5 docs/PLAN.md",
+                  "cp CLAUDE.md /tmp/copy.md", "diff CLAUDE.md /tmp/x > /tmp/out.txt",
+                  "cat > /tmp/body.json <<'JSON'\n{\"body\": \"I could not edit CONSTITUTION.md; rm CLAUDE.md is blocked\"}\nJSON"]:
+            self.assertEqual(self.bash(c), 0, c)
+
+    def test_real_writes_to_protected_files_are_blocked(self):
+        for c in ["echo x > CLAUDE.md", "echo x >>CONSTITUTION.md", "cp /tmp/x CLAUDE.md", "mv /tmp/x docs/PLAN.md",
+                  "rm CLAUDE.md", "printf x | tee .claude/settings.json", "sed -i s/a/b/ CLAUDE.md",
+                  "git checkout main -- CLAUDE.md", "FOO=1 rm -f .studio/project.yaml", "cd x && rm CONSTITUTION.md"]:
+            self.assertEqual(self.bash(c), 2, c)
+
     def test_allowed_paths_file(self):
         open(os.path.join(self.work, ".studio-allowed-paths"), "w").write("docs/PLAN.md\n")
         try:

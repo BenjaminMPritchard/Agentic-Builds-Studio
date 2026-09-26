@@ -9,6 +9,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import urllib.request
@@ -18,7 +19,9 @@ PROTECTED = ["CLAUDE.md", ".claude/**", "docs/PLAN.md", "CONSTITUTION.md", ".stu
              ".studio-allowed-paths"]
 NEVER_ALLOWED = ["CONSTITUTION.md", ".studio-allowed-paths"]  # not even a task packet can unlock these
 MAIN = r"(main|master)"
-WRITEY = re.compile(r"(>>?|\bsed\s+-i|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bgit\s+(checkout|restore|apply)\b|\bpatch\b|\bperl\s+-i)")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2(?=\s|$)", re.S)
+# Programs that modify their arguments: any protected path among the arguments counts.
+WRITERS = {"tee", "rm", "mv", "truncate", "patch", "shred", "unlink", "chmod", "chown", "ln", "install"}
 EMAIL_SEND = re.compile(r"paperclipai\s+email\s+(send|reply)|agentmail\S*\s+(send|reply)")
 EMAIL_TOOL = re.compile(r"(agentmail|mail).*(send|reply)", re.I)
 PAPERCLIP_ADMIN = re.compile(
@@ -137,12 +140,56 @@ def check_bash(cmd, cwd):
         name = m.group(2) or m.group(3)
         if name and not SAFE_DB.match(name):
             block(f"dropping database '{name}' (only mc_*, test_mc_*, *_e2e allowed)")
-    for pat in PROTECTED:
-        needle = pat[:-3] if pat.endswith("/**") else pat
-        if needle in cmd and WRITEY.search(cmd):
-            path = needle
-            if any(match(path, n) for n in NEVER_ALLOWED) or not any(match(path, a) for a in allowed_paths(cwd)):
-                block(f"command appears to modify protected path {needle}")
+    for path in protected_writes(cmd, cwd):
+        if any(match(path, n) for n in NEVER_ALLOWED) or not any(match(path, a) for a in allowed_paths(cwd)):
+            block(f"command appears to modify protected path {path}")
+
+
+def protected_of(token, cwd):
+    """The PROTECTED pattern a shell token names, or None."""
+    t = token.lstrip("<>&0123456789")
+    if not t or t.startswith("-"):
+        return None
+    try:
+        r = rel(t, cwd)
+    except Exception:
+        return None
+    return r if any(match(r, p) for p in PROTECTED) else None
+
+
+def protected_writes(cmd, cwd):
+    """Protected paths a command writes to. Reads (cat, grep, head, 2>/dev/null) don't count;
+    heredoc bodies are text, not commands."""
+    hits = []
+    for seg in re.split(r"&&|\|\||;|\n|\|", HEREDOC.sub("", cmd)):
+        try:
+            toks = shlex.split(seg)
+        except ValueError:
+            toks = seg.split()
+        while toks and re.fullmatch(r"\w+=\S*", toks[0]):
+            toks.pop(0)
+        if not toks:
+            continue
+        prog = os.path.basename(toks[0])
+        for i, t in enumerate(toks):
+            if re.match(r"^\d*>>?\|?&?$", t) and i + 1 < len(toks):  # `> FILE`
+                target = toks[i + 1]
+            elif re.match(r"^\d*>>?[^&>]", t):                          # `>FILE`
+                target = re.sub(r"^\d*>>?", "", t)
+            else:
+                continue
+            p = protected_of(target, cwd)
+            if p:
+                hits.append(p)
+        args = toks[1:]
+        writer = prog in WRITERS or (prog in ("sed", "perl") and any(a.startswith("-i") for a in args)) \
+            or (prog == "git" and args[:1] and args[0] in ("checkout", "restore", "apply", "rm", "mv"))
+        if prog == "cp" and args:
+            args = args[-1:]  # only the destination is written
+            writer = True
+        if writer:
+            hits += [p for p in (protected_of(a, cwd) for a in args) if p]
+    return hits
 
 
 def main():
