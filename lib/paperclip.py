@@ -87,6 +87,11 @@ class Paperclip:
         r = self.call("GET", f"/api/companies/{company_id}/heartbeat-runs?limit={limit}")
         return r.get("runs", r) if isinstance(r, dict) else r
 
+    def rescan_skills(self, company_id, project_id):
+        """Re-read skills from a project's workspace (imports new ones, updates changed ones)."""
+        return self.call("POST", f"/api/companies/{company_id}/skills/scan-projects",
+                         {"projectIds": [project_id], "mode": "import"})
+
     def quota_windows(self, company_id):
         return self.call("GET", f"/api/companies/{company_id}/costs/quota-windows")
 
