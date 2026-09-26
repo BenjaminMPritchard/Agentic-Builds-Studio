@@ -58,5 +58,5 @@
     "studio-house-rules",
     "architect-review"
   ],
-  "_note": "Or claude-fable-5-1 if the plan has it in Claude Code (guide \u00a710.9). Effort field left unset; --effort xhigh via extraArgs."
+  "_note": "Created with model claude-opus-5-5, extraArgs --effort xhigh --settings ...; the API accepted both."
 }

@@ -1,6 +1,6 @@
 {
   "name": "Clerk",
-  "role": "manager",
+  "role": "general",
   "reportsTo": "<director>",
   "adapterType": "process",
   "adapterConfig": {
@@ -17,7 +17,8 @@
       "STUDIO_DIRECTOR_ID": "<director>",
       "STUDIO_PRINCIPAL_ID": "<principal>",
       "STUDIO_RECORDER_ID": "<recorder>",
-      "CLERK_DRY_RUN": "1"
+      "CLERK_DRY_RUN": "1",
+      "STUDIO_DATA": "/srv/studio/data"
     }
   },
   "runtimeConfig": {
