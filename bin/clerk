@@ -2,7 +2,7 @@
 """The Clerk's command. `clerk tick` (every 10 min), `clerk weekly`.
 
 Env: STUDIO_COMPANY_ID (required), STUDIO_DATA, STUDIO_DIRECTOR_ID, STUDIO_PRINCIPAL_ID,
-STUDIO_RECORDER_ID, CLERK_DRY_RUN=1 (report only: writes digests and logs, wakes no one).
+STUDIO_RECORDER_ID, STUDIO_AUTODEPLOY=1 (pull+test+fast-forward /srv/studio/company from origin main; STUDIO_DEPLOY_REPO, STUDIO_INFRA_PROJECT_ID for skill rescans), CLERK_DRY_RUN=1 (report only: writes digests and logs, wakes no one).
 """
 import os
 import sys
@@ -21,7 +21,9 @@ def main(argv):
         return 1
     c = Clerk(Paperclip(), E("STUDIO_COMPANY_ID"), E("STUDIO_DATA", "/srv/studio/data"),
               dry_run=E("CLERK_DRY_RUN") == "1", director_id=E("STUDIO_DIRECTOR_ID"),
-              principal_id=E("STUDIO_PRINCIPAL_ID"), recorder_id=E("STUDIO_RECORDER_ID"))
+              principal_id=E("STUDIO_PRINCIPAL_ID"), recorder_id=E("STUDIO_RECORDER_ID"),
+              deploy_repo=(E("STUDIO_DEPLOY_REPO", "/srv/studio/company") if E("STUDIO_AUTODEPLOY") == "1" else None),
+              infra_project_id=E("STUDIO_INFRA_PROJECT_ID"))
     if cmd == "tick":
         c.tick()
     elif cmd == "weekly":
