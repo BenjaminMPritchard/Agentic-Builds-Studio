@@ -28,3 +28,13 @@ depends-on, done-when, evidence required, e2e yes/no, budget hint.
 Execution policies: Tier B = review by Principal then Director, `maxReviewRounds: 2`; Tier A =
 Director only. Read `.studio/project.yaml` in the site repo for check/e2e commands, risk paths,
 isolation, registers and gates. Don't invent values that file already has.
+
+## Paperclip gotchas (verified on a live instance)
+
+- **Set blockers after creating an issue, never in the create call.** Paperclip silently ignores
+  `blockedByIssueIds` (and `executionPolicy`) when an issue is created; they only take effect on an update
+  (`PATCH /api/issues/{id}`). Create all the issues first, then PATCH each one's blockers and review
+  policy, then read one back to check `blockedByIssueIds` is not empty. The Clerk can only unblock what is
+  really blocked.
+- Put the line `GitHub: owner/repo#N` in every issue description. The Clerk reads it to track PRs and merges.
+- Create issues in `backlog`; move to `todo` only when the dependency and plan gates are met.
