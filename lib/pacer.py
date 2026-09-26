@@ -44,3 +44,43 @@ def heavy_allowed(state, heavy_running, now=None):
     if heavy_running >= MAX_HEAVY:
         return False, f"{heavy_running} heavy runs already active (max {MAX_HEAVY})"
     return True, "ok"
+
+
+# ---- real subscription usage (Paperclip: GET /api/companies/{id}/costs/quota-windows) -----------------
+SESSION_LIMIT = float(os.environ.get("PACER_SESSION_PCT", 85))  # pause new Claude work above this % of the 5-hour session
+WEEK_LIMIT = float(os.environ.get("PACER_WEEK_PCT", 90))        # ... or of the weekly allowance (all models)
+
+
+def parse_windows(report):
+    """{"session": window, "week": window} from the anthropic entry of the quota report; {} if unavailable."""
+    for prov in report or []:
+        if prov.get("provider") == "anthropic" and prov.get("ok"):
+            out = {}
+            for w in prov.get("windows", []):
+                label = (w.get("label") or "").lower()
+                if w.get("usedPercent") is None:
+                    continue
+                if "session" in label:
+                    out["session"] = w
+                elif "week" in label and "all" in label:
+                    out["week"] = w
+            return out
+    return {}
+
+
+def _when(iso):
+    return (iso or "?")[:16].replace("T", " ") + " UTC" if iso else "?"
+
+
+def decide(win, session_limit=None, week_limit=None):
+    """Hold (pause heavy Claude work) when either allowance is over its limit. Unknown usage never holds."""
+    limits = (("session", session_limit or SESSION_LIMIT, "5-hour session"), ("week", week_limit or WEEK_LIMIT, "weekly"))
+    reasons = [f"{name} allowance {win[k]['usedPercent']:.0f}% used (limit {lim:.0f}%), resets {_when(win[k].get('resetsAt'))}"
+               for k, lim, name in limits if k in win and win[k]["usedPercent"] >= lim]
+    return {"hold": bool(reasons), "reasons": reasons}
+
+
+def describe(win):
+    if not win:
+        return "usage unknown"
+    return ", ".join(f"{k} {w['usedPercent']:.0f}% (resets {_when(w.get('resetsAt'))})" for k, w in win.items())

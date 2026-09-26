@@ -20,6 +20,8 @@ class FakePaperclip(Server):
     def __init__(self):
         self.issues, self.docs, self.comments, self.interactions_ = {}, {}, [], {}
         self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
+        self.quota = []
+        self.paused_calls = []
         super().__init__(self._handler)
 
     def add(self, **i):
@@ -42,6 +44,7 @@ class FakePaperclip(Server):
                 if re.fullmatch(r"/api/companies/\w+/agents", p): return s.send(200, {"agents": fake.agents})
                 if re.fullmatch(r"/api/companies/\w+/heartbeat-runs", p): return s.send(200, {"runs": fake.runs_})
                 if re.fullmatch(r"/api/companies/\w+/costs/by-\w+", p): return s.send(200, {"total": 0})
+                if re.fullmatch(r"/api/companies/\w+/costs/quota-windows", p): return s.send(200, fake.quota)
                 m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", p)
                 if m:
                     d = fake.docs.get((m[1], m[2]))
@@ -71,6 +74,12 @@ class FakePaperclip(Server):
                     if "agentId" not in b or "expectedStatuses" not in b: return s.send(400, {"error": "agentId+expectedStatuses"})
                     if m[1] in fake.checkouts: return s.send(409, {"error": "taken"})
                     fake.checkouts.append(m[1]); return s.send(200, {})
+                m = re.fullmatch(r"/api/agents/(\w+)/(pause|resume)", s.path)
+                if m:
+                    for a in fake.agents:
+                        if a["id"] == m[1]:
+                            a["status"] = "paused" if m[2] == "pause" else "idle"
+                    fake.paused_calls.append((m[1], m[2])); return s.send(200, {})
                 m = re.fullmatch(r"/api/agents/(\w+)/wakeup", s.path)
                 if m:
                     if "forceFreshSession" not in b: return s.send(400, {"error": "forceFreshSession required"})

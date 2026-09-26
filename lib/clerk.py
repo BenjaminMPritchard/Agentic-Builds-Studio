@@ -154,13 +154,44 @@ class Clerk:
 
     # ---- 4: pacer ----------------------------------------------------------------------
     def pace(self, issues, by_id):
-        agents = {a["id"]: a.get("name", "") for a in self.pc.list_agents(self.cid)}
-        st, heavy = pacer.update(self.state, self.pc.runs(self.cid), agents, self.now())
+        """Pause every Claude agent while the real 5-hour or weekly allowance is nearly used; resume the
+        ones we paused (never ones a human paused) once it is not. A recent usage-limit failure also holds."""
+        agents = self.pc.list_agents(self.cid)
+        names = {a["id"]: a.get("name", "") for a in agents}
+        st, heavy = pacer.update(self.state, self.pc.runs(self.cid), names, self.now())
         self.state = st
-        ok, why = pacer.heavy_allowed(st, heavy, self.now())
-        self.state["heavy_allowed"], self.state["heavy_reason"] = ok, why
-        if not ok:
-            self.notes.append(f"Pacer: heavy work paused ({why})")
+        failure_ok, failure_why = pacer.heavy_allowed(st, heavy, self.now())
+        try:
+            win = pacer.parse_windows(self.pc.quota_windows(self.cid))
+        except Exception as e:
+            win = {}
+            self.log("quota_error", error=str(e)[:200])
+        decision = pacer.decide(win)
+        reasons = decision["reasons"] + ([] if failure_ok or not st.get("hold_until", 0) > self.now() else [failure_why])
+        hold = bool(reasons)
+        self.state["usage"] = pacer.describe(win)
+        self.state["heavy_allowed"] = not hold
+        self.state["heavy_reason"] = "; ".join(reasons) if hold else (failure_why if not failure_ok else "ok")
+        ours = set(self.state.get("paused_by_clerk", []))
+        claude = [a for a in agents if a.get("adapterType") == "claude_local"]
+        if hold:
+            for a in claude:
+                if a.get("status") != "paused":
+                    self.act("pause", self.pc.pause_agent, a["id"])
+                    if not self.dry:
+                        ours.add(a["id"])
+            self.notes.append("Pacer: Claude agents paused. " + self.state["heavy_reason"])
+            self.needs_board.append("Usage allowance nearly used; agents paused until it resets: " + self.state["heavy_reason"])
+        else:
+            still = {a["id"]: a for a in agents}
+            for aid in list(ours):
+                if still.get(aid, {}).get("status") == "paused":
+                    self.act("resume", self.pc.resume_agent, aid)
+                ours.discard(aid) if not self.dry else None
+            if heavy >= pacer.MAX_HEAVY:
+                self.notes.append(f"Pacer: {heavy} heavy runs active (max {pacer.MAX_HEAVY}); not enforced, only reported")
+        self.state["paused_by_clerk"] = sorted(ours)
+        self.log("pacer", hold=hold, usage=self.state["usage"], dry=self.dry)
 
     # ---- 6: digest ----------------------------------------------------------------------
     def digest(self, issues, by_id):
@@ -172,7 +203,7 @@ class Clerk:
         for i in issues:
             counts[i.get("status", "?")] = counts.get(i.get("status", "?"), 0) + 1
         lines.append("## Work: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
-        lines.append(f"Pacer: {self.state.get('heavy_reason', 'n/a')}")
+        lines.append(f"Usage: {self.state.get('usage', 'n/a')}. Pacer: {self.state.get('heavy_reason', 'n/a')}")
         text = "\n".join(lines)[:DIGEST_MAX_CHARS]
         # TODO(check): the "Director inbox" issue is found by title; the Worker's summaries of agent comments are not wired in yet.
         inbox = next((i for i in issues if i.get("title") == "Director inbox"), None)

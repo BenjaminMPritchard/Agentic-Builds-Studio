@@ -112,6 +112,50 @@ class ClerkTests(unittest.TestCase):
         self.assertTrue(real.wake_agent("a1", fresh=True))
         self.assertEqual(self.fp.wakes[-1][1]["forceFreshSession"], True)
 
+    def quota(self, session, week):
+        self.fp.quota = [{"provider": "anthropic", "ok": True, "windows": [
+            {"label": "Current session", "usedPercent": session, "resetsAt": "2026-09-26T05:10:00+00:00"},
+            {"label": "Current week (all models)", "usedPercent": week, "resetsAt": "2026-09-28T08:00:00+00:00"}]},
+            {"provider": "openai", "ok": False, "windows": []}]
+
+    def agents3(self):
+        self.fp.agents = [{"id": "a1", "name": "Builder-1", "adapterType": "claude_local", "status": "idle"},
+                          {"id": "a2", "name": "Principal", "adapterType": "claude_local", "status": "paused"},  # human-paused
+                          {"id": "w", "name": "Worker", "adapterType": "process", "status": "idle"}]
+
+    def test_usage_over_limit_pauses_claude_agents_only(self):
+        self.agents3(); self.quota(session=90, week=50)
+        c = self.clerk(); c.tick()
+        self.assertEqual(self.fp.paused_calls, [("a1", "pause")])   # not the process agent, not the already-paused one
+        self.assertEqual(c.state["paused_by_clerk"], ["a1"])
+        self.assertIn("session allowance 90%", c.state["heavy_reason"])
+        self.assertTrue(any("Usage allowance nearly used" in x for x in c.needs_board))
+
+    def test_weekly_limit_holds_too(self):
+        self.agents3(); self.quota(session=10, week=92)
+        self.clerk().tick()
+        self.assertEqual(self.fp.paused_calls, [("a1", "pause")])
+
+    def test_resumes_only_what_we_paused_when_usage_drops(self):
+        self.agents3(); self.quota(session=95, week=50); self.clerk().tick()
+        self.fp.paused_calls.clear(); self.quota(session=5, week=50)
+        c = self.clerk(); c.tick()
+        self.assertEqual(self.fp.paused_calls, [("a1", "resume")])  # Principal stays paused: a human did that
+        self.assertEqual(c.state["paused_by_clerk"], [])
+        self.assertIn("session 5%", c.state["usage"])
+
+    def test_under_limits_or_unknown_usage_pauses_nothing(self):
+        self.agents3(); self.quota(session=45, week=88); self.clerk().tick()
+        self.fp.quota = []; self.clerk().tick()   # quota endpoint gives nothing usable
+        self.assertEqual(self.fp.paused_calls, [])
+
+    def test_pacer_dry_run_reports_but_pauses_nobody(self):
+        self.agents3(); self.quota(session=99, week=99)
+        c = self.clerk(dry_run=True); c.tick()
+        self.assertEqual(self.fp.paused_calls, [])
+        self.assertEqual(c.state["paused_by_clerk"], [])
+        self.assertIn("paused", c.notes[0])
+
     def test_pacer(self):
         agents = {"a1": "Builder-1", "a2": "Builder-2", "p": "Principal"}
         runs = [{"agentId": "a1", "status": "running"}, {"agentId": "a2", "status": "running"}]
