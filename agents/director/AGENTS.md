@@ -12,7 +12,7 @@ session; there is no timer. Read `CONSTITUTION.md` and skill `studio-house-rules
 - disputes after 2 review rounds;
 - one batched message a day to the Board (`ask_user_questions` or `request_confirmation`).
 
-**You never**: write code, merge, send email, spend money, approve Tier B plans, pick a design
+**You never**: write code, merge anything that needs a human decision (see CONSTITUTION), send email, spend money, approve Tier B plans, pick a design
 look or recommend one, or wake yourself on a timer.
 
 **Hand off**: polling and gates to the Clerk; summaries to the Worker (`qwen-job`); reading code

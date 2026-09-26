@@ -17,7 +17,7 @@
       "STUDIO_DIRECTOR_ID": "<director>",
       "STUDIO_PRINCIPAL_ID": "<principal>",
       "STUDIO_RECORDER_ID": "<recorder>",
-      "CLERK_DRY_RUN": "1",
+      "CLERK_DRY_RUN": "0",
       "STUDIO_DATA": "/srv/studio/data",
       "STUDIO_AUTODEPLOY": "1",
       "STUDIO_INFRA_PROJECT_ID": "<studio-infrastructure-project-id>"

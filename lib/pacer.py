@@ -48,7 +48,7 @@ def heavy_allowed(state, heavy_running, now=None):
 
 # ---- real subscription usage (Paperclip: GET /api/companies/{id}/costs/quota-windows) -----------------
 SESSION_LIMIT = float(os.environ.get("PACER_SESSION_PCT", 85))  # pause new Claude work above this % of the 5-hour session
-WEEK_LIMIT = float(os.environ.get("PACER_WEEK_PCT", 90))        # ... or of the weekly allowance (all models)
+WEEK_LIMIT = float(os.environ.get("PACER_WEEK_PCT", 0))         # weekly hold is off by default (0); set e.g. 95 to enable
 
 
 def parse_windows(report):
@@ -74,9 +74,9 @@ def _when(iso):
 
 def decide(win, session_limit=None, week_limit=None):
     """Hold (pause heavy Claude work) when either allowance is over its limit. Unknown usage never holds."""
-    limits = (("session", session_limit or SESSION_LIMIT, "5-hour session"), ("week", week_limit or WEEK_LIMIT, "weekly"))
+    limits = (("session", SESSION_LIMIT if session_limit is None else session_limit, "5-hour session"), ("week", WEEK_LIMIT if week_limit is None else week_limit, "weekly"))
     reasons = [f"{name} allowance {win[k]['usedPercent']:.0f}% used (limit {lim:.0f}%), resets {_when(win[k].get('resetsAt'))}"
-               for k, lim, name in limits if k in win and win[k]["usedPercent"] >= lim]
+               for k, lim, name in limits if lim and k in win and win[k]["usedPercent"] >= lim]
     return {"hold": bool(reasons), "reasons": reasons}
 
 

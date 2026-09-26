@@ -95,6 +95,58 @@ def check_main_branch(cwd, what):
         block(f"{what} on '{b}'. Work on a branch agent/<issue>-<slug> in a worktree")
 
 
+def merge_allowed(seg, cwd):
+    """Reason string if this `gh pr merge` is NOT allowed, else None. Only the Director may merge, and only an
+    agent PR on a project repo that is open, ready, green and not marked needs-human. Fails closed."""
+    director = os.environ.get("STUDIO_DIRECTOR_ID")
+    if not director or os.environ.get("PAPERCLIP_AGENT_ID") != director:
+        return "only the Director may merge"
+    if re.search(r"--admin\b", seg):
+        return "merging with --admin (bypassing protection) is human-only"
+    try:
+        toks = shlex.split(seg)
+    except ValueError:
+        return "cannot parse the merge command"
+    args = toks[toks.index("merge") + 1:]
+    repo, num, i = None, None, 0
+    while i < len(args):
+        if args[i] in ("-R", "--repo") and i + 1 < len(args):
+            repo, i = args[i + 1], i + 2
+            continue
+        if not args[i].startswith("-") and num is None:
+            num = args[i]
+        i += 1
+    if not (num and num.isdigit()):
+        return "name the PR by number"
+    view = ["gh", "pr", "view", num, "--json", "state,isDraft,headRefName,labels,statusCheckRollup,reviewDecision,files,url"]
+    if repo:
+        view += ["--repo", repo]
+    try:
+        r = subprocess.run(view, capture_output=True, text=True, timeout=20, cwd=cwd or None)
+        pr = json.loads(r.stdout) if r.returncode == 0 else None
+    except Exception:
+        pr = None
+    if not pr:
+        return "could not read the PR to check it"
+    if "studio-company" in (repo or "") + pr.get("url", ""):
+        return "changes to the Studio's own repo are human-only"
+    if pr["state"] != "OPEN" or pr["isDraft"]:
+        return "PR is not open and ready"
+    if not pr["headRefName"].startswith("agent/"):
+        return "only agent/* branches"
+    if any(l["name"].lower() in ("needs-human", "needs-board") for l in pr.get("labels", [])):
+        return "PR is labelled needs-human"
+    if pr.get("reviewDecision") == "CHANGES_REQUESTED":
+        return "changes were requested"
+    checks = pr.get("statusCheckRollup") or []
+    if not checks or any((c.get("conclusion") or c.get("state")) not in ("SUCCESS", "NEUTRAL", "SKIPPED") for c in checks):
+        return "checks are not all green"
+    for f in pr.get("files", []):
+        if any(match(f["path"], pat) for pat in PROTECTED):
+            return f"PR touches protected path {f['path']}"
+    return None
+
+
 def confirmation_accepted():
     """True when the current issue has an accepted request_confirmation. Fails closed."""
     base, task, key = (os.environ.get(k) for k in ("PAPERCLIP_API_URL", "PAPERCLIP_TASK_ID", "PAPERCLIP_API_KEY"))
@@ -124,7 +176,9 @@ def check_bash(cmd, cwd):
             if not re.search(r"\S+\s+\S+", s.split("push", 1)[1]) and (branch(cwd) or "") in ("main", "master"):
                 block("push from main")
         if re.match(r"(?:\S+=\S+\s+)*gh\s+pr\s+merge\b", s):
-            block("merging is a human action")
+            why = merge_allowed(s, cwd)
+            if why:
+                block(f"merge refused: {why}")
         if re.match(r"(?:\S+=\S+\s+)*git\s+(commit|merge|rebase|cherry-pick|reset)\b", s):
             check_main_branch(cwd, "git " + s.split()[1])
         if re.match(r"(?:\S+=\S+\s+)*(make\s+e2e|npx\s+playwright|playwright\s+test)", s):

@@ -6,7 +6,9 @@ what an agent could do" rule), any email, and any issue comment.
 
 ## Only a human may
 
-- merge a pull request;
+- merge a pull request, except that the Director may merge an agent PR on a project repo (never this repo) that is
+  open, ready, has every check green, has no `needs-human` label, does not touch protected paths, and needs no
+  human decision. `bin/guard` enforces this; `--admin` merges stay human;
 - send any outside email that is not a fixed template;
 - handle live keys (Stripe or otherwise), or put one in Paperclip, a file or a comment;
 - change DNS;

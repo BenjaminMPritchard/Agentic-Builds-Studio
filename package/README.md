@@ -19,4 +19,4 @@ the running instance and set those two things through the UI/CLI if the create c
   makes Paperclip reject `extraArgs` and env overrides, and it cannot be removed by PATCH.
 - Secrets are referenced by id (`{"type":"secret_ref","secretId":"<uuid>","version":"latest"}`); look ids up with
   `GET /api/companies/{id}/secrets` (names and ids only).
-- The Clerk is a `process` agent with a 600 s heartbeat and `CLERK_DRY_RUN=1` until cutover.
+- The Clerk is a `process` agent with a 600 s heartbeat and `CLERK_DRY_RUN=0` (live).
