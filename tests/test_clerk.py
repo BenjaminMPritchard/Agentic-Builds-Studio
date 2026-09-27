@@ -29,7 +29,7 @@ class ClerkTests(unittest.TestCase):
     def statuses(self):
         return {i: v["status"] for i, v in self.fp.issues.items()}
 
-    def test_merge_marks_done_and_unblocks_dependents(self):
+    def test_paperclip_owns_dependency_transitions(self):
         self.fp.add(id="w5", title="6d SEO", status="in_review", description="GitHub: o/r#31", assigneeAgentId="a1")
         self.fp.add(id="w6", title="7b", status="blocked", blockedByIssueIds=["w5"], assigneeAgentId="a1")
         self.prs["o/r"] = [{"number": 40, "state": "MERGED", "mergedAt": "2026-09-25", "headRefOid": "abc",
@@ -37,9 +37,9 @@ class ClerkTests(unittest.TestCase):
         c = self.clerk(); c.tick()
         self.assertEqual(self.statuses()["w5"], "done")
         self.assertTrue(any("Bring `main` into" in b for i, b in self.fp.comments if i == "w6"))
-        c2 = self.clerk(); c2.tick()  # gate sees w5 done, unblocks w6
-        self.assertEqual(self.statuses()["w6"], "todo")
-        self.assertIn(("a1", True), self.woken)
+        c2 = self.clerk(); c2.tick()
+        self.assertEqual(self.statuses()["w6"], "blocked")
+        self.assertNotIn(("a1", True), self.woken)
         n = len(self.fp.comments); self.clerk().tick()  # idempotent
         self.assertEqual(len(self.fp.comments), n)
 
@@ -74,7 +74,9 @@ class ClerkTests(unittest.TestCase):
     def test_accepted_plan_is_copied_to_github_and_wakes_builder(self):
         self.fp.add(id="t", title="Task", status="in_progress", description="GitHub: o/r#5", assigneeAgentId="a1")
         self.fp.docs[("t", "plan")] = "Step 1..."
-        self.fp.interactions_["t"] = [{"id": "i1", "kind": "request_confirmation", "status": "accepted"}]
+        self.fp.interactions_["t"] = [{"id": "i1", "kind": "request_confirmation", "status": "accepted",
+            "effectiveResolverPolicy": "human_only", "resolvedByUserId": "owner", "resolvedByAgentId": None,
+            "payload": {"target": {"type": "issue_document", "key": "plan", "revisionId": "revision-1"}}}]
         c = self.clerk(); c.tick()
         self.assertEqual(self.gh_comments[-1][:2], ("o/r", "5"))
         self.assertIn(("a1", False), self.woken)
@@ -89,11 +91,32 @@ class ClerkTests(unittest.TestCase):
     def test_pending_plan_is_flagged_not_actioned(self):
         self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
         self.fp.docs[("t", "plan")] = "x"
-        self.fp.interactions_["t"] = [{"id": "i1", "kind": "request_confirmation", "status": "pending"}]
+        self.fp.interactions_["t"] = [{"id": "i1", "kind": "request_confirmation", "status": "pending",
+            "payload": {"target": {"type": "issue_document", "key": "plan", "revisionId": "revision-1"}}}]
         c = self.clerk(); c.tick()
         self.assertNotIn(("a1", False), self.woken)
         self.assertNotIn(("a1", True), self.woken)
         self.assertIn("Plan confirmation waiting: Task", c.needs_board)
+
+    def test_plan_gate_rejects_agent_or_stale_approval(self):
+        self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
+        self.fp.docs[("t", "plan")] = "new plan"
+        approval = {"id": "i1", "kind": "request_confirmation", "status": "accepted",
+            "effectiveResolverPolicy": "human_only", "resolvedByUserId": "owner", "resolvedByAgentId": None,
+            "payload": {"target": {"type": "issue_document", "key": "plan", "revisionId": "old"}}}
+        self.fp.interactions_["t"] = [approval]
+        self.clerk().tick()
+        self.assertNotIn(("a1", False), self.woken)
+        approval["payload"]["target"]["revisionId"] = "revision-1"
+        approval["resolvedByUserId"] = None
+        approval["resolvedByAgentId"] = "agent"
+        self.clerk().tick()
+        self.assertNotIn(("a1", False), self.woken)
+
+    def test_issue_list_paginates_bare_arrays(self):
+        for n in range(205):
+            self.fp.add(id=f"t{n}", title="Task", status="todo")
+        self.assertEqual(len(self.pc.list_issues("co")), 205)
 
     def test_one_failing_step_does_not_stop_the_tick(self):
         self.fp.add(id="t", title="T", status="in_progress", description="GitHub: o/r#5")

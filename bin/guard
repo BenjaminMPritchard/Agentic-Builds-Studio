@@ -30,7 +30,6 @@ PAPERCLIP_ADMIN = re.compile(
 DNS = re.compile(r"\b(nsupdate|flarectl|cloudflared?\s+dns|doctl\s+compute\s+domain|aws\s+route53|gcloud\s+dns)\b")
 SAFE_DB = re.compile(r"^(mc_|test_mc_).*|.*_e2e$")
 
-# TODO(check): the endpoint and field names below are unverified against the installed Paperclip.
 CONFIRMATION_PATH = "/api/issues/{task}/interactions"
 
 
@@ -96,69 +95,33 @@ def check_main_branch(cwd, what):
 
 
 def merge_allowed(seg, cwd):
-    """Reason string if this `gh pr merge` is NOT allowed, else None. Only the Director may merge, and only an
-    agent PR on a project repo that is open, ready, green and not marked needs-human. Fails closed."""
-    director = os.environ.get("STUDIO_DIRECTOR_ID")
-    if not director or os.environ.get("PAPERCLIP_AGENT_ID") != director:
-        return "only the Director may merge"
-    if re.search(r"--admin\b", seg):
-        return "merging with --admin (bypassing protection) is human-only"
-    try:
-        toks = shlex.split(seg)
-    except ValueError:
-        return "cannot parse the merge command"
-    args = toks[toks.index("merge") + 1:]
-    repo, num, i = None, None, 0
-    while i < len(args):
-        if args[i] in ("-R", "--repo") and i + 1 < len(args):
-            repo, i = args[i + 1], i + 2
-            continue
-        if not args[i].startswith("-") and num is None:
-            num = args[i]
-        i += 1
-    if not (num and num.isdigit()):
-        return "name the PR by number"
-    view = ["gh", "pr", "view", num, "--json", "state,isDraft,headRefName,labels,statusCheckRollup,reviewDecision,files,url"]
-    if repo:
-        view += ["--repo", repo]
-    try:
-        r = subprocess.run(view, capture_output=True, text=True, timeout=20, cwd=cwd or None)
-        pr = json.loads(r.stdout) if r.returncode == 0 else None
-    except Exception:
-        pr = None
-    if not pr:
-        return "could not read the PR to check it"
-    if "studio-company" in (repo or "") + pr.get("url", ""):
-        return "changes to the Studio's own repo are human-only"
-    if pr["state"] != "OPEN" or pr["isDraft"]:
-        return "PR is not open and ready"
-    if not pr["headRefName"].startswith("agent/"):
-        return "only agent/* branches"
-    if any(l["name"].lower() in ("needs-human", "needs-board") for l in pr.get("labels", [])):
-        return "PR is labelled needs-human"
-    if pr.get("reviewDecision") == "CHANGES_REQUESTED":
-        return "changes were requested"
-    checks = pr.get("statusCheckRollup") or []
-    if not checks or any((c.get("conclusion") or c.get("state")) not in ("SUCCESS", "NEUTRAL", "SKIPPED") for c in checks):
-        return "checks are not all green"
-    for f in pr.get("files", []):
-        if any(match(f["path"], pat) for pat in PROTECTED):
-            return f"PR touches protected path {f['path']}"
-    return None
+    """Autonomous merge remains disabled until a project-specific gate is approved."""
+    return "merge requires a human under the current Studio and Mothers policy"
 
 
 def confirmation_accepted():
-    """True when the current issue has an accepted request_confirmation. Fails closed."""
+    """True only for a human-approved current email draft. Fails closed."""
     base, task, key = (os.environ.get(k) for k in ("PAPERCLIP_API_URL", "PAPERCLIP_TASK_ID", "PAPERCLIP_API_KEY"))
     if not (base and task and key):
         return False
     try:
-        req = urllib.request.Request(base.rstrip("/") + CONFIRMATION_PATH.format(task=task),
-                                     headers={"Authorization": f"Bearer {key}"})
-        data = json.load(urllib.request.urlopen(req, timeout=5))
-        items = data.get("interactions", data) if isinstance(data, dict) else data
-        latest = [i for i in items if i.get("kind", i.get("type")) == "request_confirmation"]
-        return bool(latest) and latest[-1].get("status") == "accepted"
+        headers = {"Authorization": f"Bearer {key}"}
+        doc_req = urllib.request.Request(base.rstrip("/") + f"/api/issues/{task}/documents/email-draft",
+                                         headers=headers)
+        doc = json.load(urllib.request.urlopen(doc_req, timeout=5))
+        revision = doc.get("latestRevisionId")
+        if not revision:
+            return False
+        req = urllib.request.Request(base.rstrip("/") + CONFIRMATION_PATH.format(task=task), headers=headers)
+        items = json.load(urllib.request.urlopen(req, timeout=5))
+        return isinstance(items, list) and any(
+            i.get("kind") == "request_confirmation" and i.get("status") == "accepted"
+            and i.get("effectiveResolverPolicy") == "human_only"
+            and i.get("resolvedByUserId") and not i.get("resolvedByAgentId")
+            and (i.get("payload") or {}).get("target", {}).get("type") == "issue_document"
+            and (i.get("payload") or {}).get("target", {}).get("key") == "email-draft"
+            and (i.get("payload") or {}).get("target", {}).get("revisionId") == revision
+            for i in items)
     except Exception:
         return False
 

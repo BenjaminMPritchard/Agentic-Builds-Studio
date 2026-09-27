@@ -2,53 +2,6 @@
   "budget": {
     "companyMonthlyCents": 70000
   },
-  "execution_policies": {
-    "tier_b": {
-      "executionPolicy": {
-        "mode": "normal",
-        "commentRequired": true,
-        "maxReviewRounds": 2,
-        "stages": [
-          {
-            "type": "review",
-            "participants": [
-              {
-                "type": "agent",
-                "agentId": "<principal>"
-              }
-            ]
-          },
-          {
-            "type": "review",
-            "participants": [
-              {
-                "type": "agent",
-                "agentId": "<director>"
-              }
-            ]
-          }
-        ]
-      }
-    },
-    "tier_a": {
-      "executionPolicy": {
-        "mode": "normal",
-        "commentRequired": true,
-        "maxReviewRounds": 2,
-        "stages": [
-          {
-            "type": "review",
-            "participants": [
-              {
-                "type": "agent",
-                "agentId": "<director>"
-              }
-            ]
-          }
-        ]
-      }
-    }
-  },
   "secrets_needed": [
     "claude-oauth",
     "gh-studio-build",

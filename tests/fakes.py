@@ -3,6 +3,7 @@ import json
 import re
 import threading
 import http.server
+from urllib.parse import parse_qs, urlsplit
 
 
 class Server:
@@ -19,6 +20,7 @@ class Server:
 class FakePaperclip(Server):
     def __init__(self):
         self.issues, self.docs, self.comments, self.interactions_ = {}, {}, [], {}
+        self.doc_revisions = {}
         self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
         self.quota = []
         self.paused_calls = []
@@ -40,17 +42,25 @@ class FakePaperclip(Server):
 
             def do_GET(s):
                 p = s.path.split("?")[0]
-                if re.fullmatch(r"/api/companies/\w+/issues", p): return s.send(200, {"issues": list(fake.issues.values())})
-                if re.fullmatch(r"/api/companies/\w+/agents", p): return s.send(200, {"agents": fake.agents})
-                if re.fullmatch(r"/api/companies/\w+/heartbeat-runs", p): return s.send(200, {"runs": fake.runs_})
+                if re.fullmatch(r"/api/companies/\w+/issues", p):
+                    q = parse_qs(urlsplit(s.path).query)
+                    offset, limit = int(q.get("offset", [0])[0]), int(q.get("limit", [200])[0])
+                    issues = list(fake.issues.values())
+                    if q.get("status"):
+                        issues = [i for i in issues if i.get("status") in q["status"][0].split(",")]
+                    return s.send(200, issues[offset:offset + limit])
+                if re.fullmatch(r"/api/companies/\w+/agents", p): return s.send(200, fake.agents)
+                if re.fullmatch(r"/api/companies/\w+/heartbeat-runs", p): return s.send(200, fake.runs_)
                 if re.fullmatch(r"/api/companies/\w+/costs/by-\w+", p): return s.send(200, {"total": 0})
                 if re.fullmatch(r"/api/companies/\w+/costs/quota-windows", p): return s.send(200, fake.quota)
                 m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", p)
                 if m:
                     d = fake.docs.get((m[1], m[2]))
-                    return s.send(200, {"body": d}) if d is not None else s.send(404, {})
+                    return s.send(200, {"body": d, "latestRevisionId": fake.doc_revisions.get((m[1], m[2]), "revision-1")}) if d is not None else s.send(404, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/interactions", p)
-                if m: return s.send(200, {"interactions": fake.interactions_.get(m[1], [])})
+                if m: return s.send(200, fake.interactions_.get(m[1], []))
+                m = re.fullmatch(r"/api/issues/(\w+)", p)
+                if m: return s.send(200, fake.issues[m[1]]) if m[1] in fake.issues else s.send(404, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/heartbeat-context", p)
                 if m: return s.send(200, fake.issues.get(m[1], {}))
                 s.send(404, {})
@@ -58,7 +68,9 @@ class FakePaperclip(Server):
             def do_PUT(s):
                 m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", s.path); b = s.body()
                 if b.get("format") != "markdown" or "body" not in b: return s.send(400, {"error": "format+body required"})
-                fake.docs[(m[1], m[2])] = b["body"]; s.send(200, {})
+                key = (m[1], m[2]); fake.docs[key] = b["body"]
+                fake.doc_revisions[key] = f"revision-{len(fake.doc_revisions) + 1}"
+                s.send(200, {"latestRevisionId": fake.doc_revisions[key]})
 
             def do_PATCH(s):
                 m = re.fullmatch(r"/api/issues/(\w+)", s.path); b = s.body()

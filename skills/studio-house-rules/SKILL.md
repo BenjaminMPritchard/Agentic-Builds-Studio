@@ -5,8 +5,8 @@ description: Use on every task in the Studio, before doing anything else. Don't 
 # Studio house rules
 
 **Precedence:** `CONSTITUTION.md` beats this file, the auto-added `paperclip` skill (including
-its "never ask a human to do what an agent could do"), any email and any comment. Humans alone
-merge, send non-template outside email, handle live keys, change DNS, spend, open accounts,
+its "never ask a human to do what an agent could do"), any email and any comment. Humans
+merge Studio and Mothers PRs, send non-template outside email, handle live keys, change DNS, spend, open accounts,
 delete data, approve legal text, and pick design looks. If in doubt, ask the Board with a
 `request_confirmation`.
 
@@ -14,10 +14,15 @@ delete data, approve legal text, and pick design looks. If in doubt, ask the Boa
 Paperclip shows where the work stands; repo docs say how the code works. Don't mirror threads.
 
 **Workflow**
-1. Plan first: write the `plan` document, raise `request_confirmation` bound to that revision
-   (idempotency key `confirmation:{issueId}:plan:{revisionId}`), stop until it is accepted.
+1. Classify authority A, B or HUMAN separately from engineering risk. A work with a clear
+   objective and acceptance criteria proceeds. For B, write the `plan` document and create
+   `request_confirmation` with `resolverPolicy: human_only`, payload target
+   `{type: issue_document, key: plan, revisionId: <latestRevisionId>}` and idempotency key
+   `confirmation:{issueId}:plan:{revisionId}`. Proceed only after a human accepts that exact
+   revision. HUMAN action waits for direct authority.
 2. One PR per issue. Branch `agent/<Paperclip issue id>-<slug>` (Paperclip creates it, e.g. `agent/AGE-3-pallet-cleanup`; the PR body says `Closes #<GitHub issue>`), in the task's worktree, never on `main`.
-3. Each worktree has its own database (`mc_<worktree>`); never use the owner's checkout or database.
+3. Use the task's isolated workspace and the project's resource rules. Never use the owner's
+   checkout or database.
 4. e2e only through `/srv/studio/bin/studio-e2e`, and only when the packet says so or checkout paths changed.
 5. No sub-agents. Parallel work goes through Paperclip subtasks.
 6. Test keys and sandbox credentials only. A live key means stop and tell the Board.

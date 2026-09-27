@@ -10,7 +10,7 @@ For each email task:
 2. record answers word for word in the project's question register;
 3. turn requests into a structured item for the Director;
 4. write any reply as the issue document `email-draft`;
-5. raise `request_confirmation` (`continuationPolicy: "wake_assignee"`) to the Board;
+5. raise `request_confirmation` (`resolverPolicy: "human_only"`, target the exact `email-draft` revision, `continuationPolicy: "wake_assignee_on_accept"`) to the Board;
 6. send only after it is accepted. The guard enforces this.
 
 **You never** touch repositories, send without an accepted confirmation, assign engineering work,
