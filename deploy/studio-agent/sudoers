@@ -1,0 +1,4 @@
+# paperclip (the Paperclip server) may start the agent CLI as studio-agent, passing its environment.
+# This is a privilege drop; studio-agent itself has no sudo rights.
+Defaults:paperclip !requiretty
+paperclip ALL=(studio-agent) NOPASSWD:SETENV: /usr/bin/setpriv --pdeathsig KILL -- /home/studio-agent/.local/bin/claude *

@@ -21,7 +21,12 @@ class Structure(unittest.TestCase):
         self.assertEqual(cmds, {"/srv/studio/bin/guard"})
         self.assertNotIn("allow", s["permissions"])
         eff = {n: json.load(open(p("claude", f"{n}.json"))) for n in ("director", "builder", "principal", "liaison", "architect")}
-        self.assertEqual((eff["director"], eff["principal"], eff["architect"]), ({"maxEffortLevel": "medium"}, {"maxEffortLevel": "high"}, {}))
+        self.assertEqual([eff[r].get("maxEffortLevel") for r in ("director", "principal", "architect")], ["medium", "high", None])
+        # The per-role --settings files carry Guard and the deny rules themselves, so they apply
+        # whatever user or HOME the agent runs as (a confined agent does not read paperclip's ~/.claude).
+        for role, e in eff.items():
+            self.assertEqual(e["permissions"], {"deny": s["permissions"]["deny"]}, role)
+            self.assertEqual(e["hooks"], s["hooks"], role)
 
     def test_payloads(self):
         for f in glob.glob(p("package/payloads/*.json")):
