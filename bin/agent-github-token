@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Print a short-lived token from the agents' GitHub App for one account's installation.
+
+  agent-github-token OWNER
+
+Run by agent-exec as paperclip, before dropping to studio-agent; the App key is readable by
+paperclip only. Config: /etc/studio/agents-app.json = {"app_id": N, "key_path": "/etc/studio/..."}.
+Exit 0 with the token on stdout; exit 1 with a message on stderr (never the key or token) otherwise.
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import github_app  # noqa: E402
+
+CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
+
+
+def main(argv):
+    if len(argv) != 2:
+        print("usage: agent-github-token OWNER", file=sys.stderr)
+        return 1
+    try:
+        with open(CONFIG) as f:
+            cfg = json.load(f)
+        if not (isinstance(cfg.get("app_id"), int) and isinstance(cfg.get("key_path"), str)):
+            raise ValueError("app_id (number) and key_path (string) are required")
+        print(github_app.account_installation_token(argv[1], cfg["app_id"], cfg["key_path"]))
+        return 0
+    except (OSError, ValueError, github_app.GitHubAppError) as e:
+        print(f"agent-github-token: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
