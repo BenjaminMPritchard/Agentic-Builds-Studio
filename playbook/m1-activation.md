@@ -7,7 +7,8 @@ The procedure changes nothing else: the Paperclip service, auth, agents' config,
 the obsolete runtime `origin`, the untracked `.claude/`, data, logs and Mothers are untouched.
 
 Preconditions (owner-attested 2026-09-28): Clerk `STUDIO_AUTODEPLOY=0`, `CLERK_DRY_RUN=1`;
-Clerk, Principal and Liaison paused by a human. The merge policy authorises no project.
+all nine agents paused manually (Principal and Liaison 2026-09-27; the other seven 2026-09-28
+12:42:20–38Z). Activation must leave every pause in place. The merge policy authorises no project.
 
 Steps marked **(you)** need `sudo` in a real terminal. The others are read-only checks the
 implementation agent can run.
@@ -21,6 +22,9 @@ implementation agent can run.
   until `main` catches up.
 
 ## 1. Pre-flight (read-only)
+
+Baseline recorded 2026-09-28 before merge: runtime `4a914cf`, only `?? .claude/`,
+`.claude/settings.local.json` size 661 and mtime 1790383091, health ok `2026.916.1`, no run in progress.
 
 ```bash
 S='/home/benjamin/Agentic Builds Studio'; R=/srv/studio/company; TARGET=<approved sha>
@@ -53,10 +57,9 @@ curl -sS -X POST http://127.0.0.1:3100/api/companies/bcf0f336-0c20-4194-9e21-fac
 - Runtime `HEAD` = `TARGET`; `status --short` is exactly `?? .claude/`; the `.claude` stat line is unchanged.
 - `/srv/studio/bin/guard </dev/null` exits 0. Hook samples: `gh pr merge 1` exits 2;
   `/srv/studio/bin/merge-gate check …` is not blocked.
-- `/api/health` is ok. Every agent keeps its pre-activation status: Clerk, Principal and Liaison
-  paused, the others unchanged.
-- No heartbeat run is created from activation onward except scheduled ones. The Clerk is
-  paused, so no new Clerk code runs until you resume it (dry-run).
+- `/api/health` is ok. All nine agents are still paused, each with its original `pausedAt`.
+- No heartbeat run is created after activation. The baseline's latest run was created
+  2026-09-28T12:42:05Z, and no run was in progress. New code runs only when you resume agents.
 - Skill scan result lists the changed skills. Check the imported `studio-house-rules`,
   `task-packet` and `review-gate` now mention the merge gate.
 
