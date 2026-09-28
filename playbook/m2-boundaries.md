@@ -12,7 +12,8 @@ control plane's data, and autonomous merge stays forbidden by the Constitution u
 | `paperclip` (the agents' Unix user) is in the `docker` group | Root-equivalent: a container can mount `/` and read `/etc/paperclip.env`, Paperclip data and every credential |
 | Agents run as the same Unix user as the Paperclip server | They can read Paperclip's data directory and the server's `/proc/<pid>/environ` (secrets) whatever the auth mode |
 | Paperclip `local_trusted`: a request without a bearer token becomes `local-board`, an instance admin (`middleware/auth.js`) | Any local process that omits its agent key has Board authority, including accepting `human_only` confirmations |
-| Embedded Postgres on `127.0.0.1:54329` | Reachable by every local user; its authentication method is **unverified** (not tested on purpose) |
+| Studio's embedded Postgres is on `127.0.0.1:54330` (`/home/paperclip/.paperclip/...`); `54329` is Benjamin's own Paperclip instance | Paperclip's source hard-codes the embedded login `paperclip`/`paperclip` (a superuser), and the package's default `pg_hba` is `password` on loopback. Any local user can take over Paperclip's data, and a superuser can run shell commands (`COPY ... PROGRAM`) as `paperclip` |
+| That database was started on 26 September by the hand-started Paperclip, before the systemd unit; it is outside the service and survived the restart | It still has the `docker` group after step 3 and must be restarted under the service |
 | Mothers Postgres container on `0.0.0.0:5432`, dev server on `0.0.0.0:8000`; `bin/worktree-setup` uses a `mothers_carpentry:mothers_carpentry` login | Database reachable from the LAN with a guessable password |
 | `worktree-cleanup` trusted agent-writable files for the database name and host | A bad `.studio-worktree` could drop the shared database (fixed, step 1) |
 | Paperclip `pause` requires Board authority and cancels active runs; `resume` is allowed to agents holding `agent_config:update` | A human pause is not protected from agents with that grant. No agent has an explicit grant; whether the `ceo` role implies one is **unverified** |
@@ -31,28 +32,34 @@ token, refuses system databases and non-loopback servers. Tests: `tests/test_wor
 and only if untouched since. Guard blocks agents from it and from the pause/resume endpoints. Once
 Paperclip is authenticated (step 5) it needs a Board credential.
 
-### 3. Remove Docker access from agents (host; you)
+### 3. Remove Docker access from agents — done by Benjamin 2026-09-28; one follow-up
+`paperclip` is out of `docker` and the restarted server has no `docker` group. The Studio database
+(port 54330) still runs from before the unit and keeps the group. Restart it under the service:
 ```bash
-sudo gpasswd -d paperclip docker
-sudo systemctl restart paperclip        # supplementary groups apply to new processes only
-id paperclip                            # expect no docker
-grep ^Groups /proc/$(systemctl show -p MainPID --value paperclip)/status   # no 967
+sudo systemctl stop paperclip
+sudo kill -INT 1510749          # the old postmaster (fast shutdown); confirm the PID first
+sudo systemctl start paperclip  # the server starts its database again, inside the unit
 ```
-All agents are paused, so the restart interrupts nothing. Side effect, intended: agents can no longer
-run Mothers' `make db-up`/`db-down` (the latter would stop the shared database). Your own Docker use is
-unaffected. Rollback: `sudo gpasswd -a paperclip docker && sudo systemctl restart paperclip`.
+Verify: no `paperclip` process has group 967; the database's parent is the Paperclip server; health ok.
 
-### 4. Confine agents to their own Unix user (design; prototype on one agent first)
-- New user `studio-agent` with no login shell privileges beyond its work; not in `docker`.
-- `bin/agent-exec` wrapper set as each Claude agent's `adapterConfig.command`: runs `claude` as
-  `studio-agent` through one narrow sudoers rule, passing through only the adapter's variables
-  (Claude OAuth token, `PAPERCLIP_API_KEY`/run id, `GH_TOKEN`) and the working directory.
-- Worktrees and `/srv/studio/work/*` shared through a group so both users can write.
-- Result: agents cannot read Paperclip's data directory, its process environment or `/etc/paperclip.env`.
-- Still open: the embedded database port. Its authentication must be checked by you (privileged read)
-  and, if it accepts a default password or `trust`, hardened before step 5 means anything.
-- Process adapters (Clerk, Worker) run deterministic Studio code; they can stay as `paperclip` for now.
-- Rollback: restore `adapterConfig.command` to `claude` per agent.
+### 4. Confine agents to their own Unix user — prototype source ready
+- `bin/agent-exec`: runs the Claude CLI as `studio-agent` through
+  `sudo -n -E -H -u studio-agent -- setpriv --pdeathsig KILL -- <cli>`, keeping the adapter's
+  environment and working directory; it refuses to start without `--settings`.
+- The per-role `claude/<role>.json` files now carry Guard and the deny rules themselves (pinned to
+  `claude/settings.json` by `tests/test_package.py`), because a confined agent does not read
+  `paperclip`'s `~/.claude/settings.json`.
+- `deploy/studio-agent/provision.sh` (dry run by default, `--apply` as root): the `studio` group and
+  the `studio-agent` user, group-writable `/srv/studio/work` and `/srv/studio/locks`, a git
+  `safe.directory` file, and the single sudoers rule (`deploy/studio-agent/sudoers`, checked by `visudo`).
+- Then install the Claude CLI for `studio-agent`, switch **one** paused agent's `adapterConfig.command`
+  to `/srv/studio/bin/agent-exec`, and run it once.
+- Unknown until the prototype runs: whether the adapter writes temporary files `studio-agent` cannot read;
+  where Mothers task worktrees are created (not configured explicitly).
+- Database port: `deploy/studio-agent/studio-db.nft` restricts TCP to port 54330 on loopback to the
+  `paperclip` user. It is not loaded by the script. ufw is active and the `nftables` service is disabled,
+  so loading it and keeping it across reboots is Benjamin's decision.
+- Rollback: restore `adapterConfig.command` to `claude`; remove `/etc/sudoers.d/studio-agent`.
 
 ### 5. Paperclip authenticated mode (host; you; after 4)
 - `/etc/paperclip.env`: `PAPERCLIP_DEPLOYMENT_MODE=authenticated`, a new `BETTER_AUTH_SECRET`,

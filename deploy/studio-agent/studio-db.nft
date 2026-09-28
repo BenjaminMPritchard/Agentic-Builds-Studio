@@ -1,0 +1,8 @@
+# Paperclip's embedded Postgres uses a fixed login (paperclip/paperclip), so restrict by Unix user:
+# only the paperclip user may open TCP connections to the Studio database port on loopback.
+table inet studio_db {
+  chain output {
+    type filter hook output priority 0; policy accept;
+    oif "lo" tcp dport 54330 meta skuid != "paperclip" reject with tcp reset
+  }
+}
