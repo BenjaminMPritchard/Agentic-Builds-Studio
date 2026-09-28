@@ -120,9 +120,8 @@ evidence and proposed policy amendment.
 - New source code is **not deployed**. The exact Studio code loaded in running
   processes, live agent instruction/config revisions, live run-list response,
   native recovery settings and workspace state need a read-only reconciliation.
-- `CONSTITUTION.md` still grants a conditional Director merge exception and
-  describes Guard as enforcement. Benjamin-only amendment is prepared in
-  `upgrades/m1-constitution-proposal.md`; do not edit it without approval.
+- ~~Constitution amendment~~: applied 2026-09-28 with Benjamin's authorisation
+  (commit `81f1947`), together with the merge gate below.
 - Runtime remote and untracked `.claude/` have not been reconciled. Do not
   reset or overwrite them. Deliberate deployment and service changes require
   approval; no deployment was attempted.
@@ -203,3 +202,29 @@ test results, then obtain Benjamin's decision on the prepared Constitution
 amendment. Complete the remaining read-only live contract/config checks and
 Milestone 1 review before planning any approved runtime deployment. Do not
 begin Milestone 2 until the Milestone 1 ledger has a defensible verified exit.
+
+## Continuation 2026-09-28 (merge-gate pull-forward)
+
+Benjamin authorised pulling forward only the minimum deterministic autonomous
+merge gate so the A/B semantics are enforceable, plus Constitution and Liaison
+reconciliation. This is not authorisation for Milestone 2.
+
+- IMPLEMENTED: `lib/merge_gate.py`, `bin/merge-gate`, `policy/autonomous-merge.json`
+  (**no project authorised**), Guard merge routing and `policy/**` protection,
+  CODEOWNERS, Constitution and instruction wording. Conditions and per-project
+  enabling requirements: `playbook/merge-gate.md`.
+- VERIFIED: full suite `python -W ignore -m unittest discover -s tests -t .`
+  → **122 tests OK**; `git diff --check` clean. Twelve seeded gate/Guard defects
+  were each caught by the tests. Live read contracts were probed read-only (see
+  `playbook/source-runtime.md`).
+- NOT ACTIVATED: `/srv/studio/company` is still `4a914cf`. Moving it is activation
+  (instructions, Guard, settings and Clerk load from it). `STUDIO_AUTODEPLOY`
+  is **unable to verify** without privileged access (Paperclip redacts env; process
+  env, `/etc/paperclip.env` and Paperclip data are root- or paperclip-only). The
+  Clerk runs dry (`dry: true` in its log).
+- Routing evidence (this session): Haiku scout of the Paperclip package schemas.
+  Enums were exact; it misread `pull_request.metadata.headRef` (a branch) as a SHA;
+  it self-reported 13 tool calls while the harness counted 38; ~77k tokens. Sonnet
+  wrote the 67-test gate matrix plus Guard tests from an exact case list:
+  accepted, one coverage gap found by mutation and closed by the lead; ~99k tokens,
+  20 tool calls. Authority design, gate code, Constitution and review were done by Opus.
