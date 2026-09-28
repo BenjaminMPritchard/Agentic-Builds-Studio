@@ -1,0 +1,18 @@
+# Loads deploy/studio-agent/studio-db.nft at boot, before Paperclip starts. Installed by Benjamin:
+#   sudo install -D -m 0644 deploy/studio-agent/studio-db.nft /etc/studio/studio-db.nft
+#   sudo install -m 0644 deploy/studio-agent/studio-db-firewall.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now studio-db-firewall.service
+# Remove: sudo systemctl disable --now studio-db-firewall.service (its stop deletes the table).
+[Unit]
+Description=Studio: only the paperclip user may connect to Paperclip's embedded database
+Before=paperclip.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/nft -f /etc/studio/studio-db.nft
+ExecStop=/usr/bin/nft delete table inet studio_db
+
+[Install]
+WantedBy=multi-user.target
