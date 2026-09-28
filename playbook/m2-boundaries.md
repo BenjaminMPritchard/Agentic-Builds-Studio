@@ -88,8 +88,8 @@ pay for an extra seat. GitHub Apps are not members and use no seats, so:
   authorised repositories; its private key readable only by the gate's process, not by `studio-agent`.
 - Created 2026-09-28: App `abs-merge-gate-1` (ID 5109343), owned by BenjaminMPritchard, public (so it can
   be installed on the organisation), no webhook events; permissions contents and pull requests write,
-  checks, statuses and metadata read. Installed on the organisation (verified; set to all repositories,
-  recommended: only `Mothers-Carpentry-Webpage`) and on `BenjaminMPritchard/Agentic-Builds-Studio`
+  checks, statuses and metadata read. Installed on the organisation (verified; all repositories, by Benjamin's
+  choice, so future client repositories are covered) and on `BenjaminMPritchard/Agentic-Builds-Studio`
   (owner-attested). The private key is kept off the host until the gate runs as `paperclip` behind a
   narrow sudo rule and every Claude agent runs as `studio-agent`.
 - Rulesets on `main`: restrict updates, with the App as the only bypass actor, so agent tokens
