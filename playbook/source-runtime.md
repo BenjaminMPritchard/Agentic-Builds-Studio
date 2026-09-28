@@ -41,3 +41,21 @@ Paperclip, agents and absence of unexpected wakes.
 `lib/deploy.py` and `STUDIO_AUTODEPLOY=1` are historical machinery. Ordinary
 Clerk reconciliation must not activate source changes; disable this path before
 live reconciliation is expanded in Milestone 3.
+
+## Load path and activation scope (2026-09-28, read-only)
+
+| Item | Inspected value |
+|---|---|
+| Claude agent instructions | Each `claude_local` agent uses `instructionsBundleMode=external` with `instructionsFilePath=/srv/studio/company/agents/<role>/AGENTS.md` |
+| Guard and Claude settings | `/srv/studio/bin` → `/srv/studio/company/bin` and `/srv/studio/claude` → `/srv/studio/company/claude` (symlinks made by `bin/install`); `claude/settings.json` runs `/srv/studio/bin/guard` |
+| Clerk and Worker | `process` adapters run `/srv/studio/bin/clerk tick` and `/srv/studio/bin/qwen-run`; `bin/clerk` imports `lib/` from the same checkout |
+| Clerk mode | Env values are redacted by the API. `/srv/studio/data/log/studio.jsonl`: the last 200 events are `digest` with `dry: true`. `STUDIO_AUTODEPLOY` is not observable because the running code predates that step |
+| Runtime vs source | `4a914cf..HEAD`: 43 files (36 modified, 7 added). This includes undeployed `main` work from PRs #3–#11 (Clerk `deploy_sync`, quota-window pacer that pauses/resumes Claude agents, Director-merge Guard exception later revoked by Milestone 1) |
+| Live read contracts | Source `lib/paperclip.py` against the live API: agents (9), runs (`limit` honoured), paginated issues (`blockedBy` on every item), issue detail (`blocks`, `documentSummaries`), interactions, costs by agent/project and quota windows all parsed. Anthropic quota windows `ok` (3 windows); OpenAI quota read fails with a Codex app-server `--ask-for-approval untrusted` argument error |
+
+Consequence: moving `/srv/studio/company` to a new commit **is** activation.
+Instructions, Guard, Claude settings and Clerk code change together on the next
+heartbeat or tool call. Rollback is moving the checkout back to `4a914cf`.
+Before any move, `CLERK_DRY_RUN=1` must remain set and `STUDIO_AUTODEPLOY` must
+be confirmed unset or not `1`; otherwise the new Clerk may fetch the obsolete
+runtime `origin` and fast-forward itself.
