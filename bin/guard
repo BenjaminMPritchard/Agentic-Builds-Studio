@@ -3,7 +3,7 @@
 
 Exit 2 (reason on stderr) blocks the tool call; exit 0 means "no decision".
 Best-effort for shell commands: it catches the common ways to break the rules,
-and the deny rules, branch protection and CODEOWNERS back it up.
+and the deny rules and GitHub rulesets back it up (CODEOWNERS is not enforced).
 """
 import fnmatch
 import json
