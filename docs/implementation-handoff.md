@@ -232,3 +232,20 @@ reconciliation. This is not authorisation for Milestone 2.
   wrote the 67-test gate matrix plus Guard tests from an exact case list:
   accepted, one coverage gap found by mutation and closed by the lead; ~99k tokens,
   20 tool calls. Authority design, gate code, Constitution and review were done by Opus.
+
+## Activation 2026-09-28 (approved and run by Benjamin)
+
+- Runtime `/srv/studio/company` fast-forwarded `4a914cf` → `ed9974d` (PR #12 merge) from a
+  verified bundle; rollback tag `pre-m1-activation` → `4a914cf`. Full suite on `ed9974d`:
+  122 OK. Skills re-imported: 8 updated, 0 conflicts; stored `studio-house-rules`,
+  `task-packet` and `review-gate` contain the new text.
+- VERIFIED after activation: HEAD `ed9974d`; only `?? .claude/` with unchanged size and mtime;
+  runtime Guard blocks `gh pr merge` and raw API merges and allows `merge-gate`; installed
+  systemd unit equals the repo file; health ok; all nine agents still manually paused with
+  their original `pausedAt`; no heartbeat run after 2026-09-28T12:42:05Z.
+- Finding: undeployed PR #11 had removed the `Bash(gh pr merge*)` Claude deny rule, and it
+  went live with activation (Guard still blocks). Restored in source and pinned by
+  `tests/test_package.py` (commit `ee61e7b`, branch `chore/m1-activation-fix`); **not yet
+  deployed**. The same branch fixes the bundle step in `playbook/m1-activation.md`.
+- Not done by design: no agent resumed, runtime `origin` still obsolete, no project
+  authorised for merge, `gh` unauthenticated so no live `merge-gate check` has run.
