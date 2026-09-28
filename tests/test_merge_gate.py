@@ -27,7 +27,7 @@ BASE_ISSUE = {"id": "i", "identifier": "AGE-3", "companyId": "c", "projectId": "
                   {"type": "commit", "provider": "github", "status": "active",
                    "metadata": {"repo": R, "sha": SHA, "branch": "agent/AGE-3-x"}}]}
 
-BASE_EV = {"issue": BASE_ISSUE, "plan": None, "interactions": [],
+BASE_EV = {"issue": BASE_ISSUE, "plan": None, "interactions": [], "activity": [],
            "pr": {"number": 7, "state": "open", "draft": False, "merged": False, "base_repo": R, "head_repo": R,
                   "base_ref": "main", "head_ref": "agent/AGE-3-x", "head_sha": SHA, "author": "bot", "labels": [],
                   "mergeable": True, "mergeable_state": "clean", "changed_files": 1},
@@ -431,6 +431,9 @@ class FakePC:
 
     def get_document(self, issue_id, key):
         return self._plan
+
+    def issue_activity(self, issue_id):
+        return []
 
     def interactions(self, issue_id):
         return self._interactions

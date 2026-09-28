@@ -136,6 +136,12 @@ class Paperclip:
         return subprocess.run([self.cli, "company", "export", company_id, "--out", out],
                               capture_output=True, text=True, timeout=300).returncode == 0
 
+    def issue_activity(self, issue_id):
+        r = self.call("GET", f"/api/issues/{issue_id}/activity")
+        if not isinstance(r, list):
+            raise ValueError("Paperclip issue activity contract changed")
+        return r
+
     def interactions(self, issue_id):
         r = self.call("GET", f"/api/issues/{issue_id}/interactions")
         if not isinstance(r, list):

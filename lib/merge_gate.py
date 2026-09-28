@@ -10,11 +10,15 @@ human-owned `policy/autonomous-merge.json`. Engineering evidence comes from GitH
 takes part in the decision. Anything missing, malformed or ambiguous refuses.
 """
 import fnmatch
+import functools
 import json
 import os
 import re
 import subprocess
 import time
+from datetime import datetime
+
+from lib import github_app
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLICY_PATH = os.path.join(ROOT, "policy", "autonomous-merge.json")
@@ -110,6 +114,47 @@ def plan_approved(plan, interactions):
                and ((i.get("payload") or {}).get("target") or {}).get("key") == "plan"
                and ((i.get("payload") or {}).get("target") or {}).get("revisionId") == revision
                for i in interactions)
+
+
+def _when(ts):
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def paperclip_approvers(issue, activity, repo, sha, branch):
+    """Actors whose Paperclip review decisions approve this exact head, and reasons to refuse.
+
+    The author is executionState.returnAssignee (the current assignee changes to the reviewer).
+    A decision is an activity entry whose executionState carries a new lastDecisionId. It counts only
+    if it approves, was made by someone other than the author, and came after the head commit was first
+    recorded on the issue. Any changes-requested decision after that point refuses."""
+    if not isinstance(activity, list):
+        return set(), ["could not read the issue's activity"]
+    author = ((issue.get("executionState") or {}).get("returnAssignee") or {}).get("agentId")
+    recorded = [_when(w.get("createdAt")) for w in issue.get("workProducts") or []
+                if isinstance(w, dict) and w.get("type") == "commit" and w.get("provider") == "github"
+                and str((w.get("metadata") or {}).get("repo") or "").lower() == repo
+                and (w.get("metadata") or {}).get("sha") == sha and (w.get("metadata") or {}).get("branch") == branch]
+    recorded = [t for t in recorded if t]
+    if not recorded:
+        return set(), []
+    head_time, previous, approvers, reasons = min(recorded), None, set(), []
+    for a in sorted((a for a in activity if isinstance(a, dict) and _when(a.get("createdAt"))),
+                    key=lambda a: _when(a["createdAt"])):
+        state = (a.get("details") or {}).get("executionState")
+        if not isinstance(state, dict) or not state.get("lastDecisionId") or state["lastDecisionId"] == previous:
+            continue
+        previous = state["lastDecisionId"]
+        if _when(a["createdAt"]) <= head_time:
+            continue
+        if state.get("lastDecisionOutcome") == "changes_requested":
+            reasons.append("Paperclip review requested changes after the head was recorded")
+        elif state.get("lastDecisionOutcome") == "approved" and a.get("actorType") in ("agent", "user") \
+                and a.get("actorId") and author and a["actorId"] != author:
+            approvers.add(a["actorId"])
+    return approvers, reasons
 
 
 def paperclip_review_complete(issue):
@@ -271,18 +316,31 @@ def evaluate(policy, request, ev):
     trusted = {u.lower() for u in proj["trusted_reviewers"]}
     approvals = [u for u, r in latest.items() if r.get("state") == "APPROVED" and r.get("commit_id") == sha
                  and u and u.lower() in trusted and u.lower() != (pr.get("author") or "").lower()]
-    if len(approvals) < needed:
-        no(f"needs {needed} independent approval(s) from trusted reviewers on the expected head; has {len(approvals)}")
+    pc_approvers, pc_reasons = paperclip_approvers(issue, ev.get("activity"), repo, sha, pr.get("head_ref"))
+    reasons.extend(pc_reasons)
+    have = len(approvals) + len(pc_approvers)
+    if have < needed:
+        no(f"needs {needed} independent approval(s) on the expected head (trusted GitHub reviewers or Paperclip "
+           f"review decisions by someone other than the author, after the head was recorded); has {have}")
     return reasons
 
 
 # ---- evidence collection ---------------------------------------------------------------------------
 
-def gh_api(path, paginate=False):
+def gh_env(token):
+    """Environment for gh: the gate's App token when there is one, never an inherited GITHUB_TOKEN."""
+    env = dict(os.environ)
+    if token:
+        env.pop("GITHUB_TOKEN", None)
+        env["GH_TOKEN"] = token
+    return env
+
+
+def gh_api(path, paginate=False, token=None):
     args = ["gh", "api", "-H", "Accept: application/vnd.github+json", path]
     if paginate:
         args[2:2] = ["--paginate", "--slurp"]
-    r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(args, capture_output=True, text=True, timeout=60, env=gh_env(token))
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:200])
     data = json.loads(r.stdout or "null")
@@ -301,6 +359,7 @@ def collect(pc, request, gh=gh_api):
     ev["issue"] = issue
     ev["plan"] = pc.get_document(issue["id"], "plan")
     ev["interactions"] = pc.interactions(issue["id"])
+    ev["activity"] = pc.issue_activity(issue["id"])
     repo, n, sha = request["repo"], request["pr"], request["head_sha"]
     p = gh(f"repos/{repo}/pulls/{n}")
     ev["pr"] = {
@@ -335,9 +394,16 @@ def record(data_dir, entry):
 def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, data_dir=None):
     """Collect, evaluate, record, and merge only if allowed and asked. Returns (allowed, reasons, merged)."""
     data_dir = data_dir or os.environ.get("STUDIO_DATA", "/srv/studio/data")
-    proj = None
+    proj, token = None, None
     try:
         policy = load_policy() if policy is None else policy
+        app = policy.get("github_app") if isinstance(policy, dict) else None
+        if app is not None:  # the policy names the merge App: use only its token, or refuse
+            if not (isinstance(app, dict) and isinstance(app.get("app_id"), int) and isinstance(app.get("key_path"), str)):
+                raise ValueError("github_app in the merge policy is malformed")
+            token = github_app.installation_token(request["repo"], app["app_id"], app["key_path"])
+            if gh is gh_api:
+                gh = functools.partial(gh_api, token=token)
         ev = collect(pc, request, gh=gh)
         reasons = evaluate(policy, request, ev)
         proj, _ = project_policy(policy, ev["issue"].get("projectId"))
@@ -350,7 +416,7 @@ def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, dat
         return allowed, reasons, False
     cmd = merge_cmd or ["gh", "pr", "merge", str(request["pr"]), "--repo", request["repo"],
                         f"--{proj['merge_method']}", "--match-head-commit", request["head_sha"]]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=gh_env(token))
     merged = r.returncode == 0
     reasons = [] if merged else [f"GitHub refused the merge: {(r.stderr or '').strip()[:160]}"]
     try:

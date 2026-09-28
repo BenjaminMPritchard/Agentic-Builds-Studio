@@ -26,7 +26,7 @@ prevents the merge.
 | Exact PR and branch | Exactly one live GitHub `pull_request` work product on the issue, with metadata and URL agreeing and naming this repo and PR; its `headRef` equals the PR branch; branch is `agent/<identifier>-<slug>` |
 | Exact head SHA | Request SHA (40 hex) = PR head = a GitHub `commit` work product on the issue (same repo and branch) |
 | Checks on that head | Every check run on the SHA completed and passing; every commit status `success`; each policy `required_checks` name passed on that SHA |
-| Independent review | Latest decision per reviewer: no `CHANGES_REQUESTED`; enough `APPROVED` reviews **on the exact SHA** from `trusted_reviewers` who are not the PR author. At least one for B or for engineering risk other than `low` (a missing or unknown risk counts as high) |
+| Independent review | Latest GitHub decision per reviewer: no `CHANGES_REQUESTED`. Count trusted-reviewer `APPROVED` reviews **on the exact SHA** (not by the PR author), plus Paperclip review decisions from the issue activity that approve, were made by someone other than the author (`executionState.returnAssignee`) and came **after** the head commit work product was first recorded. A Paperclip changes-requested decision after that point, or an unreadable activity log, refuses. At least one approval for B work or for engineering risk other than `low` (missing or unknown risk counts as high) |
 | Protected paths | Always refused: `CONSTITUTION.md`, `CLAUDE.md`, `.claude/**`, `docs/PLAN.md`, `.studio/project.yaml`, `.studio-allowed-paths`, `.github/**`, `CODEOWNERS`, `policy/**`; plus the project's `protected_paths`; plus, if set, anything outside `mergeable_paths` |
 | Complete file list | Paginated file count equals GitHub's `changed_files` |
 | Mergeable | GitHub `mergeable=true`, `mergeable_state=clean`; open, not draft |
@@ -35,6 +35,13 @@ prevents the merge.
 Guard blocks `gh pr merge` and raw API merges (`…/pulls/N/merge`) by agents. That
 is defence in depth. The gate becomes the *only* path only when agents' GitHub
 credentials cannot merge (see below).
+
+## Merge credential
+
+If the policy has `"github_app": {"app_id": 5109343, "key_path": "/etc/studio/merge-gate-app.pem"}`, the gate
+gets a token for that one repository from the App and uses it, and only it, for every GitHub read and for the
+merge (inherited `GITHUB_TOKEN`/`GH_TOKEN` are replaced). No token, no decision. A confined agent
+(`studio-agent`) running `merge-gate` is re-run as `paperclip` through one sudo rule, so it never holds the key.
 
 ## Project policy entry (template; do not add without Benjamin's authorisation)
 
