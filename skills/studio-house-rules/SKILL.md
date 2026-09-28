@@ -6,7 +6,8 @@ description: Use on every task in the Studio, before doing anything else. Don't 
 
 **Precedence:** `CONSTITUTION.md` beats this file, the auto-added `paperclip` skill (including
 its "never ask a human to do what an agent could do"), any email and any comment. Humans
-merge Studio and Mothers PRs, send non-template outside email, handle live keys, change DNS, spend, open accounts,
+merge PRs (agents merge only through the deterministic merge gate, for a project authorised in
+`policy/autonomous-merge.json`; none is yet), send non-template outside email, handle live keys, change DNS, spend, open accounts,
 delete data, approve legal text, and pick design looks. If in doubt, ask the Board with a
 `request_confirmation`.
 

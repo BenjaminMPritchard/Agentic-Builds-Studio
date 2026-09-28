@@ -27,6 +27,6 @@ registers:
 gates:
   branch_protection: true
   required_checks: [check]
-  merge: human
+  merge: human           # informational; merge authority is policy/autonomous-merge.json in studio-company
 budget:
   monthly_cents: 0

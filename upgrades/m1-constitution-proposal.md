@@ -1,6 +1,12 @@
 # Proposed Constitution amendment for Benjamin
 
-Status: proposal only. `CONSTITUTION.md` was not edited. Its opening sentence
+Status: **superseded and applied 2026-09-28** with Benjamin's authorisation. The adopted text
+replaces the proposal below: autonomous merge only through `bin/merge-gate` for a project
+authorised in `policy/autonomous-merge.json` (none yet), and an explicit `local_trusted` gap
+statement instead of the claim that host access cannot obtain Board authority. The original
+proposal is kept for history.
+
+Original status: proposal only. `CONSTITUTION.md` was not edited. Its opening sentence
 says only Benjamin can change it. This amendment is required to remove the
 current conditional Director merge exception and align it with the approved
 initial policy.

@@ -16,12 +16,10 @@ The implementation policy in `skills/task-packet/SKILL.md` separates authority
 (A, B, HUMAN) from engineering risk (low, medium, high). Routine authorised A
 work proceeds without human confirmation. B requires human-only acceptance of
 the exact `plan` document revision. Consequential HUMAN actions wait for direct
-human authority. Studio and Mothers PRs require human merge.
-
-The current Constitution still contains a conditional Director merge exception.
-The stricter merge rule is implemented in `bin/guard`, and a precise amendment
-proposal is in `upgrades/m1-constitution-proposal.md`. Do not treat the proposal
-as an adopted constitutional change.
+human authority. PRs require human merge unless `policy/autonomous-merge.json`
+authorises the project, in which case only the deterministic `bin/merge-gate` may
+merge. No project is authorised; Studio and Mothers PRs require human merge. See
+`playbook/merge-gate.md` for the gate's conditions and what enabling a project needs.
 
 ## Source and runtime
 
