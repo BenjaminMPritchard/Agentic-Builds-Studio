@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
 # Run by Paperclip when a task's worktree is closed. Drops only this worktree's databases.
+# The worktree's files are agent-writable, so nothing in them is trusted on its own: the database
+# name is recomputed from the worktree directory exactly as worktree-setup derives it, must contain
+# this worktree's own token, and is dropped only on a loopback Postgres. Anything else refuses.
 set -euo pipefail
 [ -f .studio-worktree ] || { echo "no .studio-worktree; nothing to drop"; exit 0; }
+refuse() { echo "worktree-cleanup refused: $1" >&2; exit 1; }
+WT="$(basename "$PWD")"
+NAME="$(printf '%s' "$WT" | tr -c 'a-zA-Z0-9' '_' | tr 'A-Z' 'a-z' | cut -c1-40)"
+[[ "$NAME" =~ [a-z0-9] ]] || refuse "worktree name gives no database token"
+DB_PATTERN="$(grep -E '^\s*db_name:' .studio/project.yaml 2>/dev/null | head -1 | sed -E 's/.*db_name:\s*"?([^"]*)"?.*/\1/' || true)"
+TOKEN="{task}"; DEFAULT="mc_$TOKEN"; PATTERN="${DB_PATTERN:-$DEFAULT}"
+[[ "$PATTERN" == *"$TOKEN"* ]] || refuse "db_name pattern '$PATTERN' is shared, not per worktree"
+EXPECTED="${PATTERN//"$TOKEN"/$NAME}"
+[[ "$EXPECTED" =~ ^[a-z0-9_]+$ ]] || refuse "bad database name: $EXPECTED"
 DB="$(sed -n 's/^STUDIO_DB_NAME=//p' .studio-worktree)"
-[[ "$DB" =~ ^mc_[a-z0-9_]+$ || "$DB" =~ ^[a-z0-9_]+$ ]] || exit 1
+[ "$DB" = "$EXPECTED" ] || refuse ".studio-worktree names '$DB', expected '$EXPECTED'"
+case "$DB" in postgres|template0|template1) refuse "system database $DB" ;; esac
 BASE_URL="$(sed -n 's/^DATABASE_URL=//p' .env 2>/dev/null | head -1)"; BASE_URL="${BASE_URL%/*}"
+HOST="$(printf '%s' "$BASE_URL" | sed -E 's#^[a-z]+://([^@/]*@)?(\[[^]]*\]|[^:/]*).*#\2#')"
+case "$HOST" in 127.0.0.1|localhost|"[::1]") ;; *) refuse "database host '$HOST' is not loopback" ;; esac
 for d in "$DB" "test_$DB" "${DB}_e2e"; do
   if [ "${STUDIO_SETUP_DRY_RUN:-0}" = 1 ]; then echo "would drop $d"; else dropdb --maintenance-db="$BASE_URL/postgres" --if-exists "$d"; fi
 done
