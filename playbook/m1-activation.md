@@ -42,9 +42,9 @@ curl -sS http://127.0.0.1:3100/api/health                      # status ok
 ## 2. Apply (you)
 
 ```bash
-git -C "$S" bundle create /tmp/claude-1000/m1.bundle "$TARGET" ^4a914cf5d4bdc319968312c115e91aa789125f7e
+git -C "$S" bundle create /tmp/claude-1000/m1.bundle origin/main ^4a914cf5d4bdc319968312c115e91aa789125f7e  # needs a ref, not a bare SHA
 sudo install -o paperclip -g paperclip -m 0400 /tmp/claude-1000/m1.bundle /srv/studio/data/backup/m1.bundle
-sudo -u paperclip git -C $R fetch /srv/studio/data/backup/m1.bundle "$TARGET"
+sudo -u paperclip git -C $R fetch /srv/studio/data/backup/m1.bundle refs/remotes/origin/main
 sudo -u paperclip git -C $R merge --ff-only "$TARGET"
 sudo -u paperclip git -C $R tag -f pre-m1-activation 4a914cf5d4bdc319968312c115e91aa789125f7e
 # Skills: Paperclip keeps imported copies; re-import from the Studio infrastructure project.

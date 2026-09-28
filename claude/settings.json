@@ -5,6 +5,7 @@
       "Agent",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
+      "Bash(gh pr merge*)",
       "Bash(make e2e*)",
       "Bash(npx playwright*)"
     ]

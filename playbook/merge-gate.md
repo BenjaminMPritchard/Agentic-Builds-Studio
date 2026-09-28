@@ -2,7 +2,8 @@
 
 Status (2026-09-28): **implemented in source, not activated, no project authorised.**
 Code: `lib/merge_gate.py`, `bin/merge-gate`. Policy: `policy/autonomous-merge.json`
-(human-only: Constitution, `CODEOWNERS`, Guard `NEVER_ALLOWED`). Tests:
+(human-only by the Constitution and Guard `NEVER_ALLOWED`; listed in `CODEOWNERS`, which GitHub does
+not currently enforce: see the rulesets below). Tests:
 `tests/test_merge_gate.py`, `tests/test_guard.py`.
 
 Paperclip supplies authority and linkage, GitHub supplies engineering evidence,
@@ -39,7 +40,7 @@ credentials cannot merge (see below).
 
 ```json
 "<paperclip project id>": {
-  "enabled": true, "repo": "Owner/Name", "base_branch": "main", "merge_method": "squash",
+  "enabled": true, "repo": "Owner/Name", "base_branch": "main", "merge_method": "merge",
   "authority_classes": ["A"], "required_checks": ["<check name>"], "required_approvals": 1,
   "trusted_reviewers": ["<github login>"], "protected_paths": [], "mergeable_paths": [],
   "authorised_by": "Benjamin", "authorised_on": "YYYY-MM-DD"
@@ -61,18 +62,25 @@ Common to both projects:
 
 - A merge here changes Studio enforcement code once it is deployed. `STUDIO_AUTODEPLOY` must be verified off, or removed, first; otherwise an autonomous merge becomes an autonomous runtime activation.
 - Use `mergeable_paths` as an allow-list (for example `docs/**`, `tests/**`, `templates/**`). Protect `bin/**`, `lib/**`, `claude/**`, `agents/**`, `skills/**` and `package/**`.
-- Checked 2026-09-28 through the public API: `main` is protected, but required status checks are off (none).
-  CI is `.github/workflows/check.yml`, one job named `check` (full suite, about 28 s). Enabling needs `check`
-  made a required check server-side as well as in the policy entry.
+- Ruleset `Protect Main` (read 2026-09-28 with authenticated `gh`): PR required with **0 approvals**, no
+  code-owner review, merge method `merge` only, required check `check` with up-to-date branches,
+  no deletion or force-push, no bypass actors. Classic branch protection is not used (earlier note
+  from the public API saying no checks were required was wrong). CI: `.github/workflows/check.yml`,
+  one job `check` (full suite, about 28 s).
 
 **Mothers Carpentry** (`Agentic-Builds-Studio/Mothers-Carpentry-Webpage`, project `c2b582f3-d52e-47fd-812c-e29d6b805d3f`):
 
-- Unverified: the repo is private (the public API returns 404), so CI check names, branch protection, and
-  whether a merge to `main` deploys to production need authenticated `gh`. If it does, autonomous merge is autonomous production deployment and needs its own decision.
+- Ruleset `Protect main (Customer Projects)`: PR required with **0 approvals**, no code-owner review,
+  merge method `merge` only, required check `check` (branch need not be up to date), no deletion or
+  force-push, no bypass actors. CI is `check.yml` (`make check`). No deploy workflow and no GitHub
+  deployments exist, so a merge does not deploy through GitHub; host-side deployment is unverified.
 - Money, stock, personal-data and migration paths should be `protected_paths`, or be kept to B work with Principal review.
 - Nothing about Mothers was changed.
 
 ## Known limits
+
+- **Server-side review is not required.** Both rulesets require 0 approvals and no code-owner review,
+  so the gate's review requirement and `CODEOWNERS` are not enforced by GitHub.
 
 - **Authority classification.** The Director classifies A/B/HUMAN in the task packet. The gate checks the stated class and its evidence; it cannot judge whether the classification was right.
 - **Linkage is recorded by agents.** Work products and branch names are recorded by agents. The gate requires them to agree with GitHub, but it does not scan other issues for a PR linked twice.
