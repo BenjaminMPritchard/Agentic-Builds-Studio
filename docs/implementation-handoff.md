@@ -222,6 +222,10 @@ reconciliation. This is not authorisation for Milestone 2.
   is **unable to verify** without privileged access (Paperclip redacts env; process
   env, `/etc/paperclip.env` and Paperclip data are root- or paperclip-only). The
   Clerk runs dry (`dry: true` in its log).
+  Update: Benjamin set and attested `STUDIO_AUTODEPLOY=0` and `CLERK_DRY_RUN=1`
+  (Clerk config `updatedAt` 2026-09-28T12:42:20Z; values still API-redacted). The
+  Clerk is now paused by Benjamin; preserve it. Activation procedure (proposed, not
+  approved): `playbook/m1-activation.md`.
 - Routing evidence (this session): Haiku scout of the Paperclip package schemas.
   Enums were exact; it misread `pull_request.metadata.headRef` (a branch) as a SHA;
   it self-reported 13 tool calls while the harness counted 38; ~77k tokens. Sonnet
