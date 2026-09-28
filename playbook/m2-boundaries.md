@@ -61,6 +61,17 @@ Verify: no `paperclip` process has group 967; the database's parent is the Paper
   so loading it and keeping it across reboots is Benjamin's decision.
 - Rollback: restore `adapterConfig.command` to `claude`; remove `/etc/sudoers.d/studio-agent`.
 
+Status 2026-09-28: `provision.sh --apply` run by Benjamin; Claude CLI 2.1.283 installed for
+`studio-agent`; the `paperclip` → sudo → `setpriv` → `studio-agent` chain prints the CLI version.
+Boundary check as `studio-agent`: `/etc/paperclip.env`, `/home/paperclip`, the Paperclip server's
+`/proc/<pid>/environ` and the Docker socket are all refused; Guard runs; `/srv/studio/work` is
+writable. Recorder (paused) has `adapterConfig.command=/srv/studio/bin/agent-exec` (merge PATCH;
+env keys and other settings unchanged). No agent run was made: a Recorder run does real work
+(journal, commit, PR), so the end-to-end test waits for genuine Recorder work. Rollback: set
+`command` back to `claude`. Database port: Benjamin asked for the rule to load at boot. `deploy/studio-agent/studio-db-firewall.service`
+(a oneshot unit, before `paperclip.service`) loads `/etc/studio/studio-db.nft`, which is safe to reload.
+Install commands are in the unit file's header.
+
 ### 5. Paperclip authenticated mode (host; you; after 4)
 - `/etc/paperclip.env`: `PAPERCLIP_DEPLOYMENT_MODE=authenticated`, a new `BETTER_AUTH_SECRET`,
   `PAPERCLIP_PUBLIC_URL=http://127.0.0.1:3100`; keep loopback binding.
@@ -70,12 +81,25 @@ Verify: no `paperclip` process has group 967; the database's parent is the Paper
 - Recovery: remove the mode variable and restart (back to `local_trusted`); requires `sudo` only.
 - Before this: agree how `studio-stop` and any Board tooling authenticate.
 
-### 6. GitHub: merge credential and reviewer identity (you create accounts/apps)
-- A GitHub App (for example `studio-merge-gate`) installed on the authorised repos; its key readable only
-  by the gate's process, not by agents.
-- Ruleset on `main`: restrict updates, with the App as the only bypass actor, so agent tokens cannot merge.
-- A separate reviewer identity (second account or App) listed in `trusted_reviewers`.
-- Then optionally enforce code-owner review with you as a bypass actor.
+### 6. GitHub: merge credential and reviewer identity (no paid seats)
+`Agentic-Builds-Studio-Client-Pages` is on the Team plan with 1 of 1 seats filled; Benjamin will not
+pay for an extra seat. GitHub Apps are not members and use no seats, so:
+- One GitHub App (for example `studio-merge-gate`) with Contents and Pull requests write on the
+  authorised repositories; its private key readable only by the gate's process, not by `studio-agent`.
+- Created 2026-09-28: App `abs-merge-gate-1` (ID 5109343), owned by BenjaminMPritchard, public (so it can
+  be installed on the organisation), no webhook events; permissions contents and pull requests write,
+  checks, statuses and metadata read. Installed on the organisation (verified; all repositories, by Benjamin's
+  choice, so future client repositories are covered) and on `BenjaminMPritchard/Agentic-Builds-Studio`
+  (owner-attested). The private key is kept off the host until the gate runs as `paperclip` behind a
+  narrow sudo rule and every Claude agent runs as `studio-agent`.
+- Rulesets on `main`: restrict updates, with the App as the only bypass actor, so agent tokens
+  cannot merge.
+- Review without a second GitHub identity: use Paperclip's review stage (a different agent, recorded in
+  `executionState`), which the gate already checks. This needs a gate change: today it forces at least
+  one GitHub approval for B or non-low-risk work; that minimum would move to a completed Paperclip review
+  stage decided by an agent other than the assignee.
+  Whether an App's own PR approval counts toward GitHub's required reviews is **unverified**; not needed
+  under this design.
 
 ### 7. Network exposure (decision)
 Mothers Postgres and its dev server listen on all interfaces. Options: a host firewall rule limiting
