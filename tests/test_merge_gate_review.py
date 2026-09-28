@@ -1,9 +1,14 @@
 """Independent review through Paperclip's review stage (no second GitHub identity)."""
 import copy
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from lib.merge_gate import evaluate
-from tests.test_merge_gate import BASE_EV, BASE_POLICY, BASE_REQ, SHA, R
+from lib import merge_gate
+from lib.github_app import GitHubAppError
+from lib.merge_gate import evaluate, run
+from tests.test_merge_gate import BASE_EV, BASE_ISSUE, BASE_POLICY, BASE_REQ, SHA, R, FakePC, make_fake_gh, policy
 
 AUTHOR, REVIEWER, OTHER = "builder", "principal", "director"
 T_HEAD, T_BEFORE, T_AFTER, T_LATER = ("2026-09-28T10:00:00.000Z", "2026-09-28T09:00:00.000Z",
@@ -87,6 +92,63 @@ class PaperclipReview(unittest.TestCase):
         self.assertTrue(any("needs 2" in r for r in evaluate(policy, BASE_REQ, review_ev(acts))))
         acts[1]["actorId"] = OTHER
         self.assertEqual(evaluate(policy, BASE_REQ, review_ev(acts)), [])
+
+
+class MergeApp(unittest.TestCase):
+    """When the policy names the merge App, the gate uses only that App's token."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.request = {"issue_id": "i", "repo": R.lower(), "pr": 7, "head_sha": SHA}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def app_policy(self):
+        p = policy()
+        p["github_app"] = {"app_id": 5109343, "key_path": "/etc/studio/merge-gate-app.pem"}
+        return p
+
+    def test_merge_runs_with_the_app_token_only(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"], seen["env"] = cmd, kw.get("env") or {}
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(merge_gate.github_app, "installation_token", return_value="tok-123") as tok, \
+                mock.patch.dict(os.environ, {"GITHUB_TOKEN": "agent-token", "GH_TOKEN": "agent-token"}), \
+                mock.patch.object(merge_gate.subprocess, "run", side_effect=fake_run):
+            allowed, reasons, merged = run(FakePC(copy.deepcopy(BASE_ISSUE)), self.request, do_merge=True,
+                                           policy=self.app_policy(), gh=make_fake_gh(), data_dir=self.tmp.name)
+        self.assertTrue(merged, reasons)
+        tok.assert_called_once_with(R.lower(), 5109343, "/etc/studio/merge-gate-app.pem")
+        self.assertEqual(seen["env"].get("GH_TOKEN"), "tok-123")
+        self.assertNotIn("GITHUB_TOKEN", seen["env"])
+
+    def test_no_app_token_refuses_and_never_merges(self):
+        with mock.patch.object(merge_gate.github_app, "installation_token", side_effect=GitHubAppError("key missing")), \
+                mock.patch.object(merge_gate.subprocess, "run") as sub:
+            allowed, reasons, merged = run(FakePC(copy.deepcopy(BASE_ISSUE)), self.request, do_merge=True,
+                                           policy=self.app_policy(), gh=make_fake_gh(), data_dir=self.tmp.name)
+        self.assertFalse(allowed)
+        self.assertFalse(merged)
+        sub.assert_not_called()
+        self.assertTrue(any("GitHubAppError" in r for r in reasons), reasons)
+
+    def test_malformed_app_policy_refuses(self):
+        p = self.app_policy()
+        p["github_app"]["app_id"] = "5109343"
+        with mock.patch.object(merge_gate.github_app, "installation_token") as tok:
+            allowed, reasons, _ = run(FakePC(copy.deepcopy(BASE_ISSUE)), self.request, policy=p, gh=make_fake_gh(),
+                                      data_dir=self.tmp.name)
+        self.assertFalse(allowed)
+        tok.assert_not_called()
+
+    def test_no_app_in_policy_keeps_the_ambient_credential(self):
+        with mock.patch.object(merge_gate.github_app, "installation_token") as tok:
+            allowed, reasons, _ = run(FakePC(copy.deepcopy(BASE_ISSUE)), self.request, policy=policy(),
+                                      gh=make_fake_gh(), data_dir=self.tmp.name)
+        self.assertTrue(allowed, reasons)
+        tok.assert_not_called()
 
 
 if __name__ == "__main__":

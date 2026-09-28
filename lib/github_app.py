@@ -47,8 +47,9 @@ def app_jwt(app_id: int, key_path: str, now: float | None = None) -> str:
             input=signing_input,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=30,
         )
-    except OSError as e:
+    except (OSError, subprocess.TimeoutExpired) as e:
         raise GitHubAppError(f"failed to invoke openssl: {e}") from None
 
     if proc.returncode != 0:

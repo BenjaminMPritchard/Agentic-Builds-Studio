@@ -10,12 +10,15 @@ human-owned `policy/autonomous-merge.json`. Engineering evidence comes from GitH
 takes part in the decision. Anything missing, malformed or ambiguous refuses.
 """
 import fnmatch
+import functools
 import json
 import os
 import re
 import subprocess
 import time
 from datetime import datetime
+
+from lib import github_app
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLICY_PATH = os.path.join(ROOT, "policy", "autonomous-merge.json")
@@ -324,11 +327,20 @@ def evaluate(policy, request, ev):
 
 # ---- evidence collection ---------------------------------------------------------------------------
 
-def gh_api(path, paginate=False):
+def gh_env(token):
+    """Environment for gh: the gate's App token when there is one, never an inherited GITHUB_TOKEN."""
+    env = dict(os.environ)
+    if token:
+        env.pop("GITHUB_TOKEN", None)
+        env["GH_TOKEN"] = token
+    return env
+
+
+def gh_api(path, paginate=False, token=None):
     args = ["gh", "api", "-H", "Accept: application/vnd.github+json", path]
     if paginate:
         args[2:2] = ["--paginate", "--slurp"]
-    r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(args, capture_output=True, text=True, timeout=60, env=gh_env(token))
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:200])
     data = json.loads(r.stdout or "null")
@@ -382,9 +394,16 @@ def record(data_dir, entry):
 def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, data_dir=None):
     """Collect, evaluate, record, and merge only if allowed and asked. Returns (allowed, reasons, merged)."""
     data_dir = data_dir or os.environ.get("STUDIO_DATA", "/srv/studio/data")
-    proj = None
+    proj, token = None, None
     try:
         policy = load_policy() if policy is None else policy
+        app = policy.get("github_app") if isinstance(policy, dict) else None
+        if app is not None:  # the policy names the merge App: use only its token, or refuse
+            if not (isinstance(app, dict) and isinstance(app.get("app_id"), int) and isinstance(app.get("key_path"), str)):
+                raise ValueError("github_app in the merge policy is malformed")
+            token = github_app.installation_token(request["repo"], app["app_id"], app["key_path"])
+            if gh is gh_api:
+                gh = functools.partial(gh_api, token=token)
         ev = collect(pc, request, gh=gh)
         reasons = evaluate(policy, request, ev)
         proj, _ = project_policy(policy, ev["issue"].get("projectId"))
@@ -397,7 +416,7 @@ def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, dat
         return allowed, reasons, False
     cmd = merge_cmd or ["gh", "pr", "merge", str(request["pr"]), "--repo", request["repo"],
                         f"--{proj['merge_method']}", "--match-head-commit", request["head_sha"]]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=gh_env(token))
     merged = r.returncode == 0
     reasons = [] if merged else [f"GitHub refused the merge: {(r.stderr or '').strip()[:160]}"]
     try:

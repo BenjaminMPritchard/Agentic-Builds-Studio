@@ -10,6 +10,7 @@ Prints {"allowed", "merged", "reasons"} as JSON. Exit 0 when allowed (and merged
 import argparse
 import json
 import os
+import pwd
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
@@ -17,7 +18,24 @@ from lib import merge_gate  # noqa: E402
 from lib.paperclip import Paperclip  # noqa: E402
 
 
+GATE = "/srv/studio/bin/merge-gate"
+GATE_USER = "paperclip"
+CONFINED_USER = "studio-agent"
+
+
+def hop(argv):
+    """A confined agent may request a decision but must not hold the merge credential: re-run the gate as
+    paperclip through one sudo rule. sudo resets the environment, so the agent cannot steer the gate."""
+    cmd = ["sudo", "-n", "-H", "-u", GATE_USER, "--", GATE, *argv[1:]]
+    if os.environ.get("STUDIO_MERGE_GATE_DRY_HOP") == "1":
+        print(" ".join(cmd))
+        return 0
+    os.execvp("sudo", cmd)
+
+
 def main(argv):
+    if pwd.getpwuid(os.geteuid()).pw_name == CONFINED_USER:
+        return hop(argv)
     ap = argparse.ArgumentParser(prog="merge-gate")
     ap.add_argument("action", choices=["check", "merge"])
     ap.add_argument("--issue", required=True)
