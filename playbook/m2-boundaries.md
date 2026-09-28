@@ -61,6 +61,16 @@ Verify: no `paperclip` process has group 967; the database's parent is the Paper
   so loading it and keeping it across reboots is Benjamin's decision.
 - Rollback: restore `adapterConfig.command` to `claude`; remove `/etc/sudoers.d/studio-agent`.
 
+Status 2026-09-28: `provision.sh --apply` run by Benjamin; Claude CLI 2.1.283 installed for
+`studio-agent`; the `paperclip` → sudo → `setpriv` → `studio-agent` chain prints the CLI version.
+Boundary check as `studio-agent`: `/etc/paperclip.env`, `/home/paperclip`, the Paperclip server's
+`/proc/<pid>/environ` and the Docker socket are all refused; Guard runs; `/srv/studio/work` is
+writable. Recorder (paused) has `adapterConfig.command=/srv/studio/bin/agent-exec` (merge PATCH;
+env keys and other settings unchanged). No agent run was made: a Recorder run does real work
+(journal, commit, PR), so the end-to-end test waits for genuine Recorder work. Rollback: set
+`command` back to `claude`. Still open: `studio-db.nft` is not loaded, so `studio-agent` can reach
+the Paperclip database port with the fixed login.
+
 ### 5. Paperclip authenticated mode (host; you; after 4)
 - `/etc/paperclip.env`: `PAPERCLIP_DEPLOYMENT_MODE=authenticated`, a new `BETTER_AUTH_SECRET`,
   `PAPERCLIP_PUBLIC_URL=http://127.0.0.1:3100`; keep loopback binding.
