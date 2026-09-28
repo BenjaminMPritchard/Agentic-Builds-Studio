@@ -1,16 +1,36 @@
 #!/usr/bin/env bash
 # Runs the agent CLI as the confined `studio-agent` user. Set it as a claude_local agent's
-# adapterConfig.command (prototype: one agent first; see playbook/m2-boundaries.md step 4).
+# adapterConfig.command (see playbook/m2-boundaries.md step 4 and playbook/github-identities.md).
 #
 # paperclip -> studio-agent drops privilege, so the adapter's whole environment and working
 # directory pass through. studio-agent cannot read Paperclip's data, its process environment or
 # /etc/paperclip.env. Guard and the deny rules travel in the per-role --settings file, not in
 # ~/.claude, so they still apply. setpriv kills the CLI if this wrapper dies, because paperclip
 # cannot signal another user's processes directly.
+#
+# GitHub: when the agents' App is configured (/etc/studio/agents-app.json, readable by paperclip only),
+# the run gets that App's one-hour token for its account instead of any inherited personal token, so
+# agents act on GitHub as the App, which cannot merge. If the token cannot be made, the run does not start.
 set -euo pipefail
 AGENT_USER="${STUDIO_AGENT_USER:-studio-agent}"
 CLI="${STUDIO_AGENT_CLI:-/home/studio-agent/.local/bin/claude}"
+APP_CONFIG="${STUDIO_AGENTS_APP_CONFIG:-/etc/studio/agents-app.json}"
+OWNER="${STUDIO_AGENT_GITHUB_OWNER:-Agentic-Builds-Studio-Client-Pages}"
+HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 case " $* " in *" --settings "*) ;; *) echo "agent-exec: refusing to run without --settings (Guard would not load)" >&2; exit 2 ;; esac
+if [ -e "$APP_CONFIG" ]; then
+  TOKEN="$("$HERE/agent-github-token" "$OWNER")" || { echo "agent-exec: no GitHub App token for $OWNER; not starting" >&2; exit 3; }
+  unset GITHUB_TOKEN
+  export GH_TOKEN="$TOKEN"
+  GH="$(command -v gh || echo /usr/bin/gh)"
+  export GIT_CONFIG_COUNT=2
+  export GIT_CONFIG_KEY_0="credential.https://github.com.helper" GIT_CONFIG_VALUE_0=""
+  export GIT_CONFIG_KEY_1="credential.https://github.com.helper" GIT_CONFIG_VALUE_1="!$GH auth git-credential"
+fi
 CMD=(sudo -n -E -H -u "$AGENT_USER" -- /usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
-if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then printf '%q ' "${CMD[@]}"; echo; exit 0; fi
+if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
+  printf '%q ' "${CMD[@]}"; echo
+  if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi
+  exit 0
+fi
 exec "${CMD[@]}"

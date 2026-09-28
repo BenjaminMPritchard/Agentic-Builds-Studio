@@ -122,3 +122,23 @@ def installation_token(repo: str, app_id: int, key_path: str, opener=None, now: 
             raise GitHubAppError("GitHub issued a token that does not cover the requested repository")
 
     return result["token"]
+
+
+def account_installation_token(owner: str, app_id: int, key_path: str, opener=None, now: float | None = None) -> str:
+    """Token for every repository of `owner`'s installation (a user or an organisation). Used for the
+    agents' own App, whose token replaces any personal token in an agent run."""
+    if opener is None:
+        opener = urllib.request.urlopen
+    if not owner or "/" in owner:
+        raise GitHubAppError("owner must be a GitHub user or organisation name")
+    jwt = app_jwt(app_id, key_path, now=now)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": USER_AGENT, "Authorization": f"Bearer {jwt}"}
+    install = _request(f"{API}/users/{owner}/installation", opener, headers=headers)
+    if not isinstance(install, dict) or not install.get("id"):
+        raise GitHubAppError("GitHub installation lookup response was missing 'id'")
+    result = _request(f"{API}/app/installations/{install['id']}/access_tokens", opener, method="POST",
+                      headers={**headers, "Content-Type": "application/json"}, data=b"{}")
+    if not isinstance(result, dict) or not result.get("token"):
+        raise GitHubAppError("GitHub access-token response was missing 'token'")
+    return result["token"]
