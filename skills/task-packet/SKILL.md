@@ -4,16 +4,24 @@ description: Use when creating, splitting or routing a task, or reading a projec
 ---
 # Task packets
 
-Write every task as a packet (template: `templates/task-packet.md`): goal, GitHub issue link
-(`GitHub: owner/repo#N`, the Clerk reads this line), tier, allowed and protected paths,
-depends-on, done-when, evidence required, e2e yes/no, budget hint.
+Write every task as a packet (template: `templates/task-packet.md`): goal, explicit work-product
+links, authority, engineering risk, allowed and protected paths, dependencies, done-when,
+evidence required, e2e yes/no, budget hint.
 
-**Risk tiers**
-- **Tier B:** money, stock, fulfilment, login, personal data, security, hardening, customer or
-  legal wording, anything in the project's `risk_paths`, any migration on those. Principal builds
-  or reviews; the Board confirms the plan; Board merges.
-- **Tier A:** everything else. Director approves the plan; Builder's `/code-review` or Principal
-  as fits.
+**Authority and engineering risk are separate.**
+- **A:** already authorised low-consequence work. State the objective and acceptance criteria;
+  execute with proportionate verification. No human confirmation for routine A work.
+- **B:** implementation within an exact human-approved plan revision. Create a Paperclip
+  `request_confirmation` targeting that `plan` document revision, with
+  `resolverPolicy: human_only`. Agents cannot accept it. A material change in scope,
+  spending, supplier, production target, data handling, security, review or customer policy
+  requires a new revision and approval.
+- **HUMAN:** consequential action requiring direct human authority, including significant
+  financial or legal commitments, DNS, production secrets, destructive business-data work,
+  material security changes and irreversible external actions. Queue until authorised.
+
+Rate engineering risk low, medium or high independently. High risk calls for a qualified
+worker, stronger checks and independent review; it does not itself require human approval.
 
 **Routing**
 | Work | To |
@@ -22,12 +30,15 @@ depends-on, done-when, evidence required, e2e yes/no, budget hint.
 | summaries, exact-quote extraction, sorting, failure classification, dedupe | Worker (`qwen-job`) |
 | client drafts, question register | Liaison |
 | features, design builds, SEO, docs, tests | Builder |
-| Tier B, reviews, second-line debugging | Principal |
+| high-risk engineering, qualified reviews, second-line debugging | Principal |
 | site type, plan, acceptance, disputes | Director |
 
-Execution policies: Tier B = review by Principal then Director, `maxReviewRounds: 2`; Tier A =
-Director only. Read `.studio/project.yaml` in the site repo for check/e2e commands, risk paths,
-isolation, registers and gates. Don't invent values that file already has.
+Use Paperclip's review policy with an independent qualified reviewer when engineering risk
+requires it. The author must not independently accept consequential implementation. Read
+`.studio/project.yaml` for project-specific check and isolation rules. Merge authority comes only
+from `policy/autonomous-merge.json` in the Studio repo, through `bin/merge-gate`; Studio and Mothers
+are not authorised, so their PRs require human merge. A B plan must state `**Scope paths:**`
+(comma-separated globs); files outside it make the work B2.
 
 ## Paperclip gotchas (verified on a live instance)
 
@@ -36,5 +47,6 @@ isolation, registers and gates. Don't invent values that file already has.
   (`PATCH /api/issues/{id}`). Create all the issues first, then PATCH each one's blockers and review
   policy, then read one back to check `blockedByIssueIds` is not empty. The Clerk can only unblock what is
   really blocked.
-- Put the line `GitHub: owner/repo#N` in every issue description. The Clerk reads it to track PRs and merges.
-- Create issues in `backlog`; move to `todo` only when the dependency and plan gates are met.
+- Record the GitHub repository, issue, branch, PR and exact head SHA as explicit work products.
+  A branch prefix is not a proof of linkage.
+- Paperclip owns dependency and issue status transitions. Do not mirror its state machine in Clerk.

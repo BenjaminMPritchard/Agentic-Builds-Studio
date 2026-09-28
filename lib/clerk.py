@@ -1,8 +1,8 @@
 """The Clerk: scripts only, no LLM. One `tick` runs each step below; every step is idempotent
 and isolated (an error in one is logged and does not stop the rest).
 
-Assumed issue fields (TODO(check) against the live API): id, title, status, assigneeAgentId,
-blockedByIssueIds, description (with a line `GitHub: owner/repo#N`), projectId.
+Issue lists use Paperclip's offset paging. Dependency transitions remain owned by
+Paperclip; Clerk does not move blocked issues to todo.
 Statuses used: backlog/todo/in_progress/in_review/blocked/done.
 """
 import hashlib
@@ -64,7 +64,7 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.gates, self.plan_gate, self.pace, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.pace, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -140,18 +140,7 @@ class Clerk:
     def _all(self):
         return self.pc.list_issues(self.cid)
 
-    # ---- 3: dependency gate ---------------------------------------------------------
-    def gates(self, issues, by_id):
-        for i in issues:
-            deps = i.get("blockedByIssueIds") or []
-            if i.get("status") == "blocked" and deps and all(by_id.get(d, {}).get("status") == "done" for d in deps):
-                if not self.seen(f"unblock:{i['id']}"):
-                    self.act("unblock", self.pc.patch_issue, i["id"], status="todo")
-                    if i.get("assigneeAgentId"):
-                        self.act("wake", self.pc.wake_agent, i["assigneeAgentId"], fresh=True)
-                    self.log("unblocked", task=i["id"])
-
-    # ---- 3b: accepted plan -> copy to GitHub, wake the builder -------------------------
+    # ---- 3: approved B plan -> copy to GitHub, wake the builder ----------------------
     def plan_gate(self, issues, by_id):
         for i in issues:
             if i.get("status") in ("done", "cancelled"):
@@ -159,12 +148,20 @@ class Clerk:
             plan = self.pc.get_document(i["id"], "plan")
             if not plan:
                 continue
-            reqs = [x for x in self.pc.interactions(i["id"]) if x.get("kind", x.get("type")) == "request_confirmation"]
-            if not (reqs and reqs[-1].get("status") == "accepted"):
-                if reqs and reqs[-1].get("status") == "pending":
+            revision = plan.get("latestRevisionId") if isinstance(plan, dict) else None
+            reqs = [x for x in self.pc.interactions(i["id"]) if x.get("kind") == "request_confirmation"
+                    and ((x.get("payload") or {}).get("target") or {}).get("type") == "issue_document"
+                    and ((x.get("payload") or {}).get("target") or {}).get("key") == "plan"]
+            approved = [x for x in reqs if x.get("status") == "accepted"
+                        and x.get("effectiveResolverPolicy") == "human_only"
+                        and x.get("resolvedByUserId") and not x.get("resolvedByAgentId")
+                        and ((x.get("payload") or {}).get("target") or {}).get("revisionId") == revision]
+            if not revision or not approved:
+                if any(x.get("status") == "pending" for x in reqs):
                     self.needs_board.append(f"Plan confirmation waiting: {i['title']}")
                 continue
-            if self.seen(f"plan:{i['id']}:{reqs[-1].get('id', len(reqs))}"):
+            approval = approved[-1]
+            if self.seen(f"plan:{i['id']}:{revision}:{approval['id']}"):
                 continue
             m = GH_LINK.search(i.get("description") or "")
             if m:

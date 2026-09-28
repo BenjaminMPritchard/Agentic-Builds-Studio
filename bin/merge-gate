@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""The only autonomous merge path. Deterministic: see lib/merge_gate.py.
+
+  merge-gate check --issue ID --repo OWNER/NAME --pr N --head SHA   # evaluate only
+  merge-gate merge --issue ID --repo OWNER/NAME --pr N --head SHA   # evaluate, then merge that exact head
+
+Prints {"allowed", "merged", "reasons"} as JSON. Exit 0 when allowed (and merged, for `merge`),
+1 when refused, 2 on bad usage. Refuses unless policy/autonomous-merge.json authorises the project.
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import merge_gate  # noqa: E402
+from lib.paperclip import Paperclip  # noqa: E402
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="merge-gate")
+    ap.add_argument("action", choices=["check", "merge"])
+    ap.add_argument("--issue", required=True)
+    ap.add_argument("--repo", required=True)
+    ap.add_argument("--pr", required=True, type=int)
+    ap.add_argument("--head", required=True)
+    a = ap.parse_args(argv[1:])
+    request = {"issue_id": a.issue, "repo": a.repo, "pr": a.pr, "head_sha": a.head}
+    allowed, reasons, merged = merge_gate.run(Paperclip(), request, do_merge=a.action == "merge")
+    print(json.dumps({"allowed": allowed, "merged": merged, "reasons": reasons}))
+    return 0 if allowed and (merged or a.action == "check") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

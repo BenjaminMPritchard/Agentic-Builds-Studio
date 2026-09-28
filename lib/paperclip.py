@@ -1,15 +1,15 @@
-"""Small Paperclip API client (stdlib only). Every endpoint used by the Studio scripts lives here.
+"""Small Paperclip API client (stdlib only).
 
-Paths were checked against the live instance's /api/openapi.json (v2026.916.1) on 2026-09-26.
-Response shapes are not in the spec; ones marked TODO(check) still need a live look. Verify them against the running instance, fix the
-path here, and nothing else needs to change. The tests use fake_paperclip.py, which mirrors
-these paths.
+The response contracts here are checked against the installed 2026.916.1 server
+package. They still require a read-only check against the running instance before
+deployment; a local fake alone is not evidence of the live contract.
 """
 import json
 import os
 import subprocess
 import urllib.error
 import urllib.request
+from urllib.parse import urlencode
 
 
 class ApiError(Exception):
@@ -61,9 +61,26 @@ class Paperclip:
 
     # --- paths confirmed in OpenAPI; TODO(check) response shapes ---------------------
     def list_issues(self, company_id, status=None):
-        q = f"?status={status}" if status else ""
-        r = self.call("GET", f"/api/companies/{company_id}/issues{q}")
-        return r.get("issues", r) if isinstance(r, dict) else r
+        # The server returns a bare array, capped by limit, with offset paging.
+        # Request blockers explicitly; the default list omits that projection.
+        issues, offset, limit = [], 0, 200
+        while True:
+            query = {"limit": limit, "offset": offset, "includeBlockedBy": "true"}
+            if status:
+                query["status"] = status
+            page = self.call("GET", f"/api/companies/{company_id}/issues?{urlencode(query)}")
+            if not isinstance(page, list) or any(not isinstance(i, dict) or "id" not in i for i in page):
+                raise ValueError("Paperclip issue list contract changed")
+            issues.extend(page)
+            if len(page) < limit:
+                return issues
+            offset += len(page)
+
+    def get_issue(self, issue_id):
+        issue = self.call("GET", f"/api/issues/{issue_id}")
+        if not isinstance(issue, dict) or issue.get("id") != issue_id:
+            raise ValueError("Paperclip issue detail contract changed")
+        return issue
 
     def get_document(self, issue_id, key):
         try:
@@ -81,11 +98,15 @@ class Paperclip:
 
     def list_agents(self, company_id):
         r = self.call("GET", f"/api/companies/{company_id}/agents")
-        return r.get("agents", r) if isinstance(r, dict) else r
+        if not isinstance(r, list):
+            raise ValueError("Paperclip agent list contract changed")
+        return r
 
     def runs(self, company_id, limit=50):
         r = self.call("GET", f"/api/companies/{company_id}/heartbeat-runs?limit={limit}")
-        return r.get("runs", r) if isinstance(r, dict) else r
+        if not isinstance(r, list):
+            raise ValueError("Paperclip run list contract changed")
+        return r
 
     def rescan_skills(self, company_id, project_id):
         """Re-read skills from a project's workspace (imports new ones, updates changed ones)."""
@@ -116,6 +137,7 @@ class Paperclip:
                               capture_output=True, text=True, timeout=300).returncode == 0
 
     def interactions(self, issue_id):
-        # TODO(check): same path the guard uses.
         r = self.call("GET", f"/api/issues/{issue_id}/interactions")
-        return r.get("interactions", r) if isinstance(r, dict) else r
+        if not isinstance(r, list):
+            raise ValueError("Paperclip interaction list contract changed")
+        return r

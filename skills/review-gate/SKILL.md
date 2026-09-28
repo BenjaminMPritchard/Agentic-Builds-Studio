@@ -11,4 +11,5 @@ input → wrong result); the fix. No vague style comments.
   "Planning notes" on the issue, not more rounds.
 - Checklists: **money** (integer pence, server-side amounts, idempotency keys, webhook is source of truth, live keys absent); **stock/reservations** (transaction + row lock, release paths); **personal data** (minimised, retention, no logs); **forms** (validation, spam, errors).
 - A migration or a `risk_paths` file means the Principal reviews.
-- Accept only against "Done when" with evidence. Never merge: the Board merges.
+- Accept only against "Done when" with evidence. Never merge: a human merges, or `bin/merge-gate` for an authorised project. Approve on GitHub
+  at the exact head SHA; an approval on an older commit does not count.

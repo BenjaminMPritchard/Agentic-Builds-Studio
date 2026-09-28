@@ -54,13 +54,13 @@ class Guard(unittest.TestCase):
         os.chmod(path, 0o755)
         return {"PATH": d + ":" + os.environ["PATH"], "STUDIO_DIRECTOR_ID": "dir", "PAPERCLIP_AGENT_ID": "dir"}
 
-    def test_director_merge_rules(self):
+    def test_director_cannot_merge_without_project_gate(self):
         ok = {"state": "OPEN", "isDraft": False, "headRefName": "agent/AGE-4-x", "labels": [], "reviewDecision": "APPROVED",
               "statusCheckRollup": [{"conclusion": "SUCCESS"}], "files": [{"path": "app/a.py"}],
               "url": "https://github.com/o/mothers/pull/3"}
         env = self.fake_gh(ok)
         m = "gh pr merge 3 --squash --repo o/mothers"
-        self.assertEqual(self.bash(m, env=env), 0)
+        self.assertEqual(self.bash(m, env=env), 2)
         self.assertEqual(self.bash(m, env={**env, "PAPERCLIP_AGENT_ID": "someone"}), 2)      # not the Director
         self.assertEqual(self.bash(m + " --admin", env=env), 2)
         self.assertEqual(self.bash("gh pr merge 3 --repo o/studio-company", env=env), 2)
@@ -135,11 +135,17 @@ class Guard(unittest.TestCase):
             self.assertEqual(self.bash(c), 2, c)
 
     def test_email_send_requires_accepted_confirmation(self):
-        status = {"v": "pending"}
+        status = {"v": "pending", "revision": "rev-new", "resolver": "owner"}
 
         class H(http.server.BaseHTTPRequestHandler):
             def do_GET(s):
-                body = json.dumps({"interactions": [{"kind": "request_confirmation", "status": status["v"]}]}).encode()
+                if s.path.endswith("/documents/email-draft"):
+                    response = {"latestRevisionId": "rev-new", "body": "draft"}
+                else:
+                    response = [{"kind": "request_confirmation", "status": status["v"],
+                        "effectiveResolverPolicy": "human_only", "resolvedByUserId": status["resolver"], "resolvedByAgentId": None,
+                        "payload": {"target": {"type": "issue_document", "key": "email-draft", "revisionId": status["revision"]}}}]
+                body = json.dumps(response).encode()
                 s.send_response(200); s.end_headers(); s.wfile.write(body)
             def log_message(*a): pass
         srv = http.server.HTTPServer(("127.0.0.1", 0), H)
@@ -151,6 +157,10 @@ class Guard(unittest.TestCase):
             status["v"] = "accepted"
             self.assertEqual(self.bash("paperclipai email send --to a@b.c", env=env), 0)
             self.assertEqual(run("mcp__agentmail__send_message", {}, self.work, env), 0)
+            status["revision"] = "rev-old"
+            self.assertEqual(self.bash("paperclipai email send --to a@b.c", env=env), 2)
+            status["revision"] = "rev-new"; status["resolver"] = None
+            self.assertEqual(self.bash("paperclipai email send --to a@b.c", env=env), 2)
         finally:
             srv.shutdown()
         self.assertEqual(self.bash("paperclipai email send --to a@b.c", env={"PAPERCLIP_API_URL": ""}), 2)
@@ -158,6 +168,19 @@ class Guard(unittest.TestCase):
     def test_bad_input_is_no_decision(self):
         r = subprocess.run([GUARD], input="not json", capture_output=True, text=True)
         self.assertEqual(r.returncode, 0)
+
+    def test_merge_gate_is_the_only_autonomous_merge_path(self):
+        self.assertEqual(self.bash("gh pr merge 5 --squash"), 2)
+        self.assertEqual(self.bash("gh api -X PUT repos/o/r/pulls/5/merge"), 2)
+        self.assertEqual(self.bash("curl -X PUT https://api.github.com/repos/o/r/pulls/5/merge"), 2)
+        self.assertEqual(
+            self.bash("/srv/studio/bin/merge-gate merge --issue i --repo o/r --pr 5 --head " + "a" * 40), 0)
+        self.assertEqual(self.bash("gh pr view 5"), 0)
+
+    def test_policy_directory_is_never_allowed(self):
+        self.assertEqual(run("Write", {"file_path": "policy/autonomous-merge.json", "content": "{}"}, self.work,
+                             {"STUDIO_ALLOWED_PATHS": "policy/**"}), 2)
+        self.assertEqual(self.bash("sed -i s/x/y/ policy/autonomous-merge.json"), 2)
 
 
 if __name__ == "__main__":

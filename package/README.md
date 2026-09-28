@@ -1,9 +1,9 @@
 # package/
 
-Reproducible Paperclip configuration. See `COMPANY.md`. `payloads/` holds the JSON to paste into the
-Paperclip web page or send with `paperclipai agent create --company-id <id> --payload-json "$(cat payloads/agent-x.json)"`
-(replace every `<placeholder>`; strip the `_note` keys first with `jq 'del(._note)'`).
-The web page is the normal way to configure the company; these files exist so it can be rebuilt.
+Paperclip configuration reference. See `COMPANY.md`. `payloads/` contains
+historical creation payloads with placeholders, not a current company export
+or an instruction to recreate existing agents. Reconcile each payload with
+the live agent before any approved configuration change.
 
 Field names such as `instructions`, `desiredSkills` and `title` follow the guide's tables, not a verified
 schema (guide §5.4: instructions are set as Agent → Instructions → External; skills with

@@ -18,7 +18,7 @@ isolation:
   e2e_ports: []
   e2e_lock: /srv/studio/locks/e2e.lock
 paths:
-  risk_paths: []           # Principal-owned (Tier B)
+  risk_paths: []           # Principal reviews (engineering risk, not an authority class)
   protected_paths: []      # editable only when listed in a packet
 registers:
   roadmap: 0               # GitHub issue numbers
@@ -27,6 +27,6 @@ registers:
 gates:
   branch_protection: true
   required_checks: [check]
-  merge: human
+  merge: human           # informational; merge authority is policy/autonomous-merge.json in studio-company
 budget:
   monthly_cents: 0
