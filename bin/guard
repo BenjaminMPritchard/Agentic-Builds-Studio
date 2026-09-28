@@ -16,8 +16,8 @@ import urllib.request
 
 LIVE_KEY = re.compile(r"\b(sk|pk|rk)_live_[A-Za-z0-9]+")
 PROTECTED = ["CLAUDE.md", ".claude/**", "docs/PLAN.md", "CONSTITUTION.md", ".studio/project.yaml",
-             ".studio-allowed-paths"]
-NEVER_ALLOWED = ["CONSTITUTION.md", ".studio-allowed-paths"]  # not even a task packet can unlock these
+             ".studio-allowed-paths", "policy/**"]
+NEVER_ALLOWED = ["CONSTITUTION.md", ".studio-allowed-paths", "policy/**"]  # not even a task packet can unlock these
 MAIN = r"(main|master)"
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2(?=\s|$)", re.S)
 # Programs that modify their arguments: any protected path among the arguments counts.
@@ -94,9 +94,13 @@ def check_main_branch(cwd, what):
         block(f"{what} on '{b}'. Work on a branch agent/<issue>-<slug> in a worktree")
 
 
+RAW_MERGE = re.compile(r"(\bgh\s+api\b|\bcurl\b|\bwget\b|\bhttp\b).*pulls/\d+/merge\b")
+
+
 def merge_allowed(seg, cwd):
-    """Autonomous merge remains disabled until a project-specific gate is approved."""
-    return "merge requires a human under the current Studio and Mothers policy"
+    """Agents never merge directly. The deterministic gate (/srv/studio/bin/merge-gate) is the only
+    autonomous merge path, and it refuses unless policy/autonomous-merge.json authorises the project."""
+    return "agents merge only through /srv/studio/bin/merge-gate; otherwise a human merges"
 
 
 def confirmation_accepted():
@@ -138,6 +142,8 @@ def check_bash(cmd, cwd):
                 block("push to main/master")
             if not re.search(r"\S+\s+\S+", s.split("push", 1)[1]) and (branch(cwd) or "") in ("main", "master"):
                 block("push from main")
+        if RAW_MERGE.search(s):
+            block("merge refused: merging through the GitHub API bypasses the merge gate")
         if re.match(r"(?:\S+=\S+\s+)*gh\s+pr\s+merge\b", s):
             why = merge_allowed(s, cwd)
             if why:

@@ -169,6 +169,19 @@ class Guard(unittest.TestCase):
         r = subprocess.run([GUARD], input="not json", capture_output=True, text=True)
         self.assertEqual(r.returncode, 0)
 
+    def test_merge_gate_is_the_only_autonomous_merge_path(self):
+        self.assertEqual(self.bash("gh pr merge 5 --squash"), 2)
+        self.assertEqual(self.bash("gh api -X PUT repos/o/r/pulls/5/merge"), 2)
+        self.assertEqual(self.bash("curl -X PUT https://api.github.com/repos/o/r/pulls/5/merge"), 2)
+        self.assertEqual(
+            self.bash("/srv/studio/bin/merge-gate merge --issue i --repo o/r --pr 5 --head " + "a" * 40), 0)
+        self.assertEqual(self.bash("gh pr view 5"), 0)
+
+    def test_policy_directory_is_never_allowed(self):
+        self.assertEqual(run("Write", {"file_path": "policy/autonomous-merge.json", "content": "{}"}, self.work,
+                             {"STUDIO_ALLOWED_PATHS": "policy/**"}), 2)
+        self.assertEqual(self.bash("sed -i s/x/y/ policy/autonomous-merge.json"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
