@@ -61,11 +61,14 @@ Common to both projects:
 
 - A merge here changes Studio enforcement code once it is deployed. `STUDIO_AUTODEPLOY` must be verified off, or removed, first; otherwise an autonomous merge becomes an autonomous runtime activation.
 - Use `mergeable_paths` as an allow-list (for example `docs/**`, `tests/**`, `templates/**`). Protect `bin/**`, `lib/**`, `claude/**`, `agents/**`, `skills/**` and `package/**`.
-- The required check name is **unverified**. `gh` is not authenticated in the implementation session, so branch protection could not be read.
+- Checked 2026-09-28 through the public API: `main` is protected, but required status checks are off (none).
+  CI is `.github/workflows/check.yml`, one job named `check` (full suite, about 28 s). Enabling needs `check`
+  made a required check server-side as well as in the policy entry.
 
 **Mothers Carpentry** (`Agentic-Builds-Studio/Mothers-Carpentry-Webpage`, project `c2b582f3-d52e-47fd-812c-e29d6b805d3f`):
 
-- Unverified: CI check names, branch protection, and whether a merge to `main` deploys to production. If it does, autonomous merge is autonomous production deployment and needs its own decision.
+- Unverified: the repo is private (the public API returns 404), so CI check names, branch protection, and
+  whether a merge to `main` deploys to production need authenticated `gh`. If it does, autonomous merge is autonomous production deployment and needs its own decision.
 - Money, stock, personal-data and migration paths should be `protected_paths`, or be kept to B work with Principal review.
 - Nothing about Mothers was changed.
 
