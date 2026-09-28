@@ -249,3 +249,17 @@ reconciliation. This is not authorisation for Milestone 2.
   deployed**. The same branch fixes the bundle step in `playbook/m1-activation.md`.
 - Not done by design: no agent resumed, runtime `origin` still obsolete, no project
   authorised for merge, `gh` unauthenticated so no live `merge-gate check` has run.
+
+## Milestone 1 complete (2026-09-28)
+
+Second activation (approved and run by Benjamin): runtime `ed9974d` → `e88de5a` (PRs #13 and
+#14). Rollback tags: `pre-m1-followup` → `ed9974d`, `pre-m1-activation` → `4a914cf`. VERIFIED:
+HEAD `e88de5a`; only `?? .claude/` with unchanged size and mtime; live settings contain
+`Bash(gh pr merge*)`; live Constitution states `CODEOWNERS` is not enforced; Guard blocks
+`gh pr merge` and raw API merges and allows `merge-gate`; health ok; all nine agents still
+manually paused; no heartbeat run since the baseline. Live `merge-gate` GitHub collectors were
+exercised read-only against PR #13 and refused under the empty policy.
+
+Still human decisions: resuming agents; authorising any project in the merge policy (blocked by
+the Constitution until `local_trusted` is closed); enforcing code-owner review on GitHub; fixing
+the runtime `origin`. Milestone 2 has not started.
