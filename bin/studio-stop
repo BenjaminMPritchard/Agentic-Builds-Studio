@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Human tool: drain, stop or resume the whole company. See lib/stop.py.
+
+  studio-stop status
+  studio-stop drain [--timeout SECONDS]   # pause each agent once it has no active run; never forces
+  studio-stop stop                        # pause everything now (active runs are cancelled)
+  studio-stop resume                      # resume only agents studio-stop paused, if untouched since
+
+Uses Board authority on the local Paperclip API. Agents may not run it (Guard).
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import stop  # noqa: E402
+from lib.paperclip import Paperclip  # noqa: E402
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="studio-stop")
+    ap.add_argument("action", choices=["status", "drain", "stop", "resume"])
+    ap.add_argument("--timeout", type=int, default=1800)
+    a = ap.parse_args(argv[1:])
+    company = os.environ.get("STUDIO_COMPANY_ID", "bcf0f336-0c20-4194-9e21-fac517979ba0")
+    path = os.path.join(os.environ.get("STUDIO_DATA", "/srv/studio/data"), "stop-state.json")
+    pc = Paperclip()
+    ok = True
+    if a.action == "status":
+        lines = stop.status(pc, company, path)
+    elif a.action == "drain":
+        ok, lines = stop.drain(pc, company, path, timeout=a.timeout)
+    elif a.action == "stop":
+        lines = stop.stop(pc, company, path)
+    else:
+        lines = stop.resume(pc, company, path)
+    print("\n".join(lines) or "nothing to do")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
