@@ -177,6 +177,13 @@ class Guard(unittest.TestCase):
             self.bash("/srv/studio/bin/merge-gate merge --issue i --repo o/r --pr 5 --head " + "a" * 40), 0)
         self.assertEqual(self.bash("gh pr view 5"), 0)
 
+    def test_drain_stop_pause_and_resume_are_human_only(self):
+        for c in ("studio-stop resume", "/srv/studio/bin/studio-stop stop",
+                  "curl -X POST localhost:3100/api/agents/abc-1/resume",
+                  "curl -X POST localhost:3100/api/agents/abc-1/pause"):
+            self.assertEqual(self.bash(c), 2, c)
+        self.assertEqual(self.bash("python -m unittest tests.test_stop"), 0)
+
     def test_policy_directory_is_never_allowed(self):
         self.assertEqual(run("Write", {"file_path": "policy/autonomous-merge.json", "content": "{}"}, self.work,
                              {"STUDIO_ALLOWED_PATHS": "policy/**"}), 2)
