@@ -68,7 +68,7 @@ Common to both projects:
   from the public API saying no checks were required was wrong). CI: `.github/workflows/check.yml`,
   one job `check` (full suite, about 28 s).
 
-**Mothers Carpentry** (`Agentic-Builds-Studio/Mothers-Carpentry-Webpage`, project `c2b582f3-d52e-47fd-812c-e29d6b805d3f`):
+**Mothers Carpentry** (`Agentic-Builds-Studio-Client-Pages/Mothers-Carpentry-Webpage`; moved from `Agentic-Builds-Studio/`, which now redirects. The policy `repo` must use the new name, since GitHub reports it and the gate compares names exactly. Paperclip still records the old URL, project `c2b582f3-d52e-47fd-812c-e29d6b805d3f`):
 
 - Ruleset `Protect main (Customer Projects)`: PR required with **0 approvals**, no code-owner review,
   merge method `merge` only, required check `check` (branch need not be up to date), no deletion or

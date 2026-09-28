@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs the agent CLI as the confined `studio-agent` user. Set it as a claude_local agent's
+# adapterConfig.command (prototype: one agent first; see playbook/m2-boundaries.md step 4).
+#
+# paperclip -> studio-agent drops privilege, so the adapter's whole environment and working
+# directory pass through. studio-agent cannot read Paperclip's data, its process environment or
+# /etc/paperclip.env. Guard and the deny rules travel in the per-role --settings file, not in
+# ~/.claude, so they still apply. setpriv kills the CLI if this wrapper dies, because paperclip
+# cannot signal another user's processes directly.
+set -euo pipefail
+AGENT_USER="${STUDIO_AGENT_USER:-studio-agent}"
+CLI="${STUDIO_AGENT_CLI:-/home/studio-agent/.local/bin/claude}"
+case " $* " in *" --settings "*) ;; *) echo "agent-exec: refusing to run without --settings (Guard would not load)" >&2; exit 2 ;; esac
+CMD=(sudo -n -E -H -u "$AGENT_USER" -- /usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
+if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then printf '%q ' "${CMD[@]}"; echo; exit 0; fi
+exec "${CMD[@]}"
