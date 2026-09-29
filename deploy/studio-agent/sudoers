@@ -1,7 +1,10 @@
 # paperclip (the Paperclip server) may start the agent CLI as studio-agent, passing its environment.
-# This is a privilege drop; studio-agent itself has no sudo rights.
+# This is a privilege drop. studio-agent may run only the paperclip commands listed below, each as paperclip.
 Defaults:paperclip !requiretty
 paperclip ALL=(studio-agent) NOPASSWD:SETENV: /usr/bin/setpriv --pdeathsig KILL -- /home/studio-agent/.local/bin/claude *
 # A confined agent may ask the merge gate for a decision; the gate runs as paperclip, which alone can read
 # the merge App key. Only these two subcommands; sudo resets the environment.
 studio-agent ALL=(paperclip) NOPASSWD: /srv/studio/bin/merge-gate check *, /srv/studio/bin/merge-gate merge *
+# A confined agent may renew its GitHub App token during a long run. Only the --grant form: the grant, which
+# agent-exec created as paperclip when the run started, decides the account and expires after 8 hours.
+studio-agent ALL=(paperclip) NOPASSWD: /srv/studio/bin/agent-github-token --grant *

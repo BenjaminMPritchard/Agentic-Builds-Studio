@@ -41,10 +41,12 @@ class AgentExecToken(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp)
 
+    grant_line = '[ "$1" = --new-grant ] && { echo 0123456789abcdef0123456789abcdef; exit 0; }\n'
+
     def fake_token_cmd(self, body):
         p = os.path.join(self.tmp, "agent-github-token")
         with open(p, "w") as f:
-            f.write("#!/usr/bin/env bash\n" + body + "\n")
+            f.write("#!/usr/bin/env bash\n" + self.grant_line + body + "\n")
         os.chmod(p, 0o755)
 
     def run_exec(self, configured=True, owner=None):

@@ -1,34 +1,49 @@
 #!/usr/bin/env python3
-"""Print a short-lived token from the agents' GitHub App for one account's installation.
+"""Short-lived tokens from the agents' GitHub App. Runs as paperclip; the App key is readable by paperclip only.
 
-  agent-github-token OWNER
+  agent-github-token OWNER               token for OWNER's installation (agent-exec, when a run starts)
+  agent-github-token --new-grant OWNER   create a run grant for OWNER and print its ID (agent-exec)
+  agent-github-token --grant ID          token for the account a live run grant names
 
-Run by agent-exec as paperclip, before dropping to studio-agent; the App key is readable by
-paperclip only. Config: /etc/studio/agents-app.json = {"app_id": N, "key_path": "/etc/studio/..."}.
-Exit 0 with the token on stdout; exit 1 with a message on stderr (never the key or token) otherwise.
+A confined agent may run only the `--grant ID` form, through sudo (deploy/studio-agent/sudoers), so it can
+renew its token during a long run but cannot choose the account and cannot renew after the grant expires.
+Config: /etc/studio/agents-app.json = {"app_id": N, "key_path": "/etc/studio/..."}.
+Exit 0 with the result on stdout; exit 1 with a message on stderr (never the key or token) otherwise.
 """
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-from lib import github_app  # noqa: E402
+from lib import agent_grant, github_app  # noqa: E402
 
 CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
+GRANT_DIR = os.environ.get("STUDIO_AGENT_GRANT_DIR", agent_grant.GRANT_DIR)
+USAGE = "usage: agent-github-token OWNER | --new-grant OWNER | --grant ID"
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("usage: agent-github-token OWNER", file=sys.stderr)
-        return 1
+def token_for(owner, config=CONFIG, mint=github_app.account_installation_token):
+    with open(config) as f:
+        cfg = json.load(f)
+    if not (isinstance(cfg.get("app_id"), int) and isinstance(cfg.get("key_path"), str)):
+        raise ValueError("app_id (number) and key_path (string) are required")
+    return mint(owner, cfg["app_id"], cfg["key_path"])
+
+
+def main(argv, mint=github_app.account_installation_token, grant_dir=GRANT_DIR, config=CONFIG):
+    args = argv[1:]
     try:
-        with open(CONFIG) as f:
-            cfg = json.load(f)
-        if not (isinstance(cfg.get("app_id"), int) and isinstance(cfg.get("key_path"), str)):
-            raise ValueError("app_id (number) and key_path (string) are required")
-        print(github_app.account_installation_token(argv[1], cfg["app_id"], cfg["key_path"]))
+        if len(args) == 1 and not args[0].startswith("-"):
+            print(token_for(args[0], config, mint))
+        elif len(args) == 2 and args[0] == "--new-grant":
+            print(agent_grant.create(args[1], grant_dir))
+        elif len(args) == 2 and args[0] == "--grant":
+            print(token_for(agent_grant.resolve(args[1], grant_dir), config, mint))
+        else:
+            print(USAGE, file=sys.stderr)
+            return 1
         return 0
-    except (OSError, ValueError, github_app.GitHubAppError) as e:
+    except (OSError, ValueError, agent_grant.GrantError, github_app.GitHubAppError) as e:
         print(f"agent-github-token: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
