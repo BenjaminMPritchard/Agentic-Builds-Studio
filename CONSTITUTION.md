@@ -53,9 +53,11 @@ depth, not a security boundary. The consequential controls are the GitHub rulese
 request is required, the `check` job must pass, no force-push or deletion), Paperclip's human-only
 confirmations, and credential and filesystem boundaries. The rulesets require no approval and no
 code-owner review, so `CODEOWNERS` and review requirements are not enforced by GitHub. The merge gate is a
-deterministic procedure; it is the only merge path for a project only once GitHub credentials and branch
-rules stop agents merging any other way.
+deterministic procedure; it is the only merge path for agents: only Benjamin and the merge App may update
+`main`, and the gate merges only projects authorised in `policy/autonomous-merge.json`.
 
-Known gap: while Paperclip runs in `local_trusted` mode, anything with host access can act as the Board,
-including accepting human-only confirmations. This gap must be closed before any project is authorised for
-autonomous merge. Until then these rules bind agents but are not fully enforced against them.
+Paperclip runs in `authenticated` mode on loopback. A request without a login session, a Board API key or
+an agent run's own key has no authority, so human-only confirmations need Benjamin's login. Agents run as the
+`studio-agent` user with their own run keys, and act on GitHub as the `abs-agents` App, which cannot merge.
+Remaining limit: agents share one Unix user, so one run can read another concurrent run's keys. Authorising
+any project for autonomous merge remains Benjamin's separate decision.

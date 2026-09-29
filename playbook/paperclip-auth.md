@@ -1,6 +1,12 @@
 # Paperclip authenticated mode
 
-Status 2026-09-29: stage A (code) implemented; stage B (the switch) not done.
+Status 2026-09-29: done. Runtime `84ec6d7` with the sudoers file installed; Paperclip in `authenticated`
+mode, private exposure, sign-up closed; Benjamin claimed the Board (instance admin, company owner); Board key
+saved in `~/.config/studio/paperclip-board-key` (0600). Verified: no key gets 401 as Benjamin and as
+`studio-agent`; the key works (`studio-stop status`); all agents still paused with unchanged `pausedAt`; no run
+started. The first attempt did not switch because the lines never reached `/etc/paperclip.env`; the step now
+checks `grep -c` before restarting. Not yet exercised: an agent run's key through `agent-exec`, and the merge
+gate reading with an agent's key. `CONSTITUTION.md` updated with Benjamin's approval.
 
 ## Why
 
@@ -35,6 +41,7 @@ sudo visudo -cf /etc/sudoers.d/studio-agent
    ```bash
    sudo cp -p /etc/paperclip.env /root/paperclip.env.pre-auth
    printf 'PAPERCLIP_DEPLOYMENT_MODE=authenticated\nPAPERCLIP_DEPLOYMENT_EXPOSURE=private\n' | sudo tee -a /etc/paperclip.env >/dev/null
+   sudo grep -c '^PAPERCLIP_DEPLOYMENT_' /etc/paperclip.env      # must print 2; stop otherwise
    sudo systemctl restart paperclip && sleep 15
    curl -sS http://127.0.0.1:3100/api/health | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"], d["deploymentMode"], d["deploymentExposure"])'
    ```
