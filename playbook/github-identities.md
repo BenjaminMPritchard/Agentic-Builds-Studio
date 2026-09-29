@@ -128,6 +128,26 @@ settings in Paperclip.
 Every agent has held Benjamin's personal token. Once no agent uses it, revoke it on GitHub and give
 the host's own tools a fresh one if they still need one.
 
+Status 2026-09-29: done. The Clerk's `GH_TOKEN` was removed and the runtime activated (`ae0c667`, then
+`a387d9e` and `48e337a` for token renewal). Paperclip itself also used a token: with no company secret named
+`GITHUB_TOKEN`/`GH_TOKEN`, it falls back to the server's `GH_TOKEN` (`/etc/paperclip.env`) to clone and fetch
+project repositories, and Mothers is private. That is now `paperclip-checkout-read`, a fine-grained token on
+the client organisation, all repositories, Contents read-only. The Paperclip secret "Github Studio Ops
+External" (Architect's and Recorder's `GH_TOKEN_SITE_READ`) holds the same token, as version 2. Benjamin
+revoked studio-ops-internal, studio-ops-external and every other fine-grained token, and deleted the unused
+secrets "Ops Internal", "Coord" and "Build Token".
+
+| Who | GitHub access |
+|---|---|
+| Claude agents | `abs-agents` App, per run, renewed through a run grant; cannot merge |
+| Architect, Recorder (site reads) | `paperclip-checkout-read`, read-only, as `GH_TOKEN=$GH_TOKEN_SITE_READ gh ...` |
+| Clerk | `abs-agents` App, per repository owner |
+| Merge gate | `abs-merge-gate-1` App |
+| Paperclip server (checkouts) | `paperclip-checkout-read` |
+
+`paperclip-checkout-read` is still Benjamin's identity, read-only. Replacing it with an App token would need
+Paperclip's managed GitHub connection, not yet explored.
+
 ## Result
 Agents can push branches and open PRs as `abs-agents`, but cannot merge. `main` changes only by PR,
 with a green `check`, merged by Benjamin or by `abs-merge-gate-1` when the merge gate allows it under
