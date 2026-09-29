@@ -72,6 +72,24 @@ env keys and other settings unchanged). No agent run was made: a Recorder run do
 (a oneshot unit, before `paperclip.service`) loads `/etc/studio/studio-db.nft`, which is safe to reload.
 Install commands are in the unit file's header.
 
+Status 2026-09-29, first live run (Recorder): it failed in 2 seconds with `EACCES`. The unknown above was
+real: the adapter writes the agent's instructions, its prompt bundle (skills as symlinks into Paperclip's
+home) and any MCP config under `/home/paperclip/.paperclip`, and passes them as
+`--append-system-prompt-file`, `--add-dir` and `--mcp-config`. The earlier chain check ran only
+`claude --version`. Fix: `agent-exec`, still `paperclip`, runs `bin/agent-stage` (`lib/agent_stage.py`),
+which copies those into a per-run folder under `/srv/studio/data/agent-runs` (owned by `paperclip`, group
+`studio`, mode 2750; agents cannot write there, so they cannot plant links for `paperclip` to follow),
+dereferences the skill links, and rewrites the arguments. If staging fails the run does not start. Folders
+older than a day are removed at each start. An MCP config can hold the run's own Paperclip key; the staged
+copy is readable by `studio-agent` for up to a day, which a later run could read (agents share one user).
+The three failed attempts made no model calls.
+
+Working folder: for a task in a project with a folder, Paperclip starts the run in that folder, not the
+agent's configured `cwd`. The "Studio infrastructure" project's folder is the runtime checkout
+`/srv/studio/company` (the skills import reads it), which agents cannot write. Rule: Studio work tasks have
+no project, so runs use the agent's own folder under `/srv/studio/work`. AGE-9 was taken out of the project
+(clearing `projectWorkspaceId` too; `projectId: null` alone is ignored).
+
 ### 5. Paperclip authenticated mode (host; you; after 4)
 - `/etc/paperclip.env`: `PAPERCLIP_DEPLOYMENT_MODE=authenticated`, a new `BETTER_AUTH_SECRET`,
   `PAPERCLIP_PUBLIC_URL=http://127.0.0.1:3100`; keep loopback binding.

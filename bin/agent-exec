@@ -6,7 +6,8 @@
 # directory pass through. studio-agent cannot read Paperclip's data, its process environment or
 # /etc/paperclip.env. Guard and the deny rules travel in the per-role --settings file, not in
 # ~/.claude, so they still apply. setpriv kills the CLI if this wrapper dies, because paperclip
-# cannot signal another user's processes directly.
+# cannot signal another user's processes directly. Files Paperclip writes under its own home for the CLI are
+# staged where studio-agent can read them (bin/agent-stage).
 #
 # GitHub: when the agents' App is configured (/etc/studio/agents-app.json, readable by paperclip only),
 # the run gets that App's one-hour token for its account instead of any inherited personal token, so
@@ -32,10 +33,15 @@ if [ -e "$APP_CONFIG" ]; then
   export GIT_CONFIG_KEY_1="credential.https://github.com.helper" GIT_CONFIG_VALUE_1="!$HERE/agent-git-credential"
   SETENV+=("PATH=$(realpath "$HERE/../agent-bin"):$PATH")
 fi
+# Paperclip writes the instructions, prompt bundle and MCP config under its own home, which studio-agent cannot
+# read; stage copies it can (lib/agent_stage.py) and rewrite those arguments. No staging, no run.
+STAGED="$(mktemp)"
+"$HERE/agent-stage" "$@" > "$STAGED" || { rm -f "$STAGED"; echo "agent-exec: could not stage Paperclip's files for $AGENT_USER; not starting" >&2; exit 3; }
+mapfile -d '' -t ARGS < "$STAGED"; rm -f "$STAGED"
 # sudo reads VAR=value only before `--`; after it, `PATH=...` would be taken as the command and match no rule.
 CMD=(sudo -n -E -H -u "$AGENT_USER")
 if [ ${#SETENV[@]} -gt 0 ]; then CMD+=("${SETENV[@]}"); else CMD+=(--); fi
-CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
+CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi

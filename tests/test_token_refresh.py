@@ -242,6 +242,7 @@ class AgentExecWiring(Tmp):
     def setUp(self):
         super().setUp()
         shutil.copy(os.path.join(ROOT, "bin", "agent-exec"), os.path.join(self.tmp, "agent-exec"))
+        os.symlink(os.path.join(ROOT, "bin", "agent-stage"), os.path.join(self.tmp, "agent-stage"))
         self.config = os.path.join(self.tmp, "agents-app.json")
         with open(self.config, "w") as f:
             json.dump({"app_id": 7, "key_path": "/nonexistent"}, f)
