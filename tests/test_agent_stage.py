@@ -190,10 +190,12 @@ class AgentExecStaging(unittest.TestCase):
         self.assertIn(" --settings /srv/studio/claude/liaison.json", r.stdout)
 
     def test_the_runs_scratch_folder_is_shared_and_a_wrong_one_stops_the_run(self):
-        scratch = tempfile.mkdtemp(prefix="paperclip-run-test-")  # directly under the real temp root
+        scratch = tempfile.mkdtemp(prefix="paperclip-run-test-", dir=agent_stage.SCRATCH_ROOT)
         try:
             os.chmod(scratch, 0o700)
-            with mock.patch.dict(os.environ, {"PAPERCLIP_RUN_SCRATCH_DIR": scratch}):
+            # As Paperclip does: TMPDIR, TEMP and TMP are the scratch folder itself.
+            with mock.patch.dict(os.environ, {"PAPERCLIP_RUN_SCRATCH_DIR": scratch, "TMPDIR": scratch,
+                                              "TEMP": scratch, "TMP": scratch}):
                 r = self.exec_(self.instructions)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(stat.S_IMODE(os.stat(scratch).st_mode), 0o2770)
