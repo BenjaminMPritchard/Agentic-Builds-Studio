@@ -2,6 +2,7 @@ import json, os, tempfile, unittest
 from tests.fakes import FakePaperclip
 from lib.paperclip import Paperclip
 from lib.clerk import Clerk
+from lib import clerk as clerk_mod
 from lib import pacer
 
 
@@ -192,6 +193,75 @@ class ClerkTests(unittest.TestCase):
         self.pc.export_company = lambda cid, out: True
         out = self.clerk().weekly()
         self.assertTrue(os.path.exists(os.path.join(out, "cost-report.json")))
+
+
+class ClerkGitHubIdentity(unittest.TestCase):
+    """The Clerk's gh calls use the agents' App token for the repository's owner, not a personal token."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.config = os.path.join(self.tmp.name, "agents-app.json")
+        clerk_mod._tokens.clear()
+        self.minted, self.t = [], 1000.0
+
+    def tearDown(self):
+        self.tmp.cleanup(); clerk_mod._tokens.clear()
+
+    def env(self, repo):
+        def mint(owner, app_id, key_path):
+            self.minted.append((owner, app_id, key_path))
+            return f"ghs_{owner}_{len(self.minted)}"
+        old = {k: os.environ.get(k) for k in ("GH_TOKEN", "GITHUB_TOKEN")}
+        os.environ.update(GH_TOKEN="personal", GITHUB_TOKEN="personal")
+        try:
+            return clerk_mod.gh_env(repo, config=self.config, mint=mint, now=lambda: self.t)
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+    def configure(self):
+        with open(self.config, "w") as f:
+            json.dump({"app_id": 5110225, "key_path": "/etc/studio/agents-app.pem"}, f)
+
+    def test_without_app_config_the_environment_is_inherited(self):
+        self.assertIsNone(self.env("o/r"))
+        self.assertEqual(self.minted, [])
+
+    def test_app_token_for_the_repo_owner_replaces_personal_tokens(self):
+        self.configure()
+        env = self.env("Agentic-Builds-Studio-Client-Pages/site")
+        self.assertEqual(env["GH_TOKEN"], "ghs_Agentic-Builds-Studio-Client-Pages_1")
+        self.assertNotIn("GITHUB_TOKEN", env)
+        self.assertEqual(self.minted, [("Agentic-Builds-Studio-Client-Pages", 5110225, "/etc/studio/agents-app.pem")])
+
+    def test_tokens_are_reused_per_owner_until_near_expiry(self):
+        self.configure()
+        self.env("a/one"); self.env("a/two"); self.env("b/three")
+        self.assertEqual([m[0] for m in self.minted], ["a", "b"])
+        self.t += 49 * 60
+        self.env("a/one")
+        self.assertEqual(len(self.minted), 2)
+        self.t += 2 * 60
+        self.assertEqual(self.env("a/one")["GH_TOKEN"], "ghs_a_3")
+
+    def test_both_gh_calls_use_the_repo_environment(self):
+        from unittest import mock
+        calls = []
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("env")))
+            return mock.Mock(returncode=0, stdout="[]", stderr="")
+        with mock.patch.object(clerk_mod, "gh_env", lambda repo: {"GH_TOKEN": "app-" + repo}), \
+             mock.patch.object(clerk_mod.subprocess, "run", run):
+            clerk_mod.gh_json(["pr", "list", "--repo", "o/r"])
+            Clerk.gh_comment(None, "o/s", "5", "body")
+        self.assertEqual([c[1] for c in calls], [{"GH_TOKEN": "app-o/r"}, {"GH_TOKEN": "app-o/s"}])
+
+    def test_no_token_means_the_call_fails(self):
+        self.configure()
+        def mint(*a):
+            raise clerk_mod.github_app.GitHubAppError("HTTP 404")
+        with self.assertRaises(clerk_mod.github_app.GitHubAppError):
+            clerk_mod.gh_env("o/r", config=self.config, mint=mint)
 
 
 if __name__ == "__main__":

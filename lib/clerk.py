@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from lib import deploy, pacer
+from lib import deploy, github_app, pacer
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
@@ -20,8 +20,30 @@ RED_LIMIT = 3
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 
 
+APP_CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
+_tokens = {}  # owner -> (token, expires); App tokens last an hour
+
+
+def gh_env(repo, config=APP_CONFIG, mint=github_app.account_installation_token, now=time.time):
+    """Environment for a gh call on `repo`. When the agents' App is configured, gh uses that App's token
+    for the repository's owner, never an inherited personal token; if no token can be made the call fails.
+    Without the App config the environment is inherited unchanged."""
+    if not os.path.exists(config):
+        return None
+    owner = repo.split("/", 1)[0]
+    token, expires = _tokens.get(owner, (None, 0))
+    if now() >= expires:
+        with open(config) as f:
+            cfg = json.load(f)
+        token = mint(owner, cfg["app_id"], cfg["key_path"])
+        _tokens[owner] = (token, now() + 60 * 60)
+    env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+    return {**env, "GH_TOKEN": token}
+
+
 def gh_json(args):
-    r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60,
+                       env=gh_env(args[args.index("--repo") + 1]))
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:200])
     return json.loads(r.stdout or "null")
@@ -171,7 +193,8 @@ class Clerk:
                 self.act("wake", self.pc.wake_agent, i["assigneeAgentId"], fresh=False)
 
     def gh_comment(self, repo, num, body):
-        subprocess.run(["gh", "issue", "comment", num, "--repo", repo, "--body", body], check=True, timeout=60)
+        subprocess.run(["gh", "issue", "comment", num, "--repo", repo, "--body", body], check=True, timeout=60,
+                       env=gh_env(repo))
 
     # ---- 4: pacer ----------------------------------------------------------------------
     def pace(self, issues, by_id):
