@@ -18,6 +18,9 @@ import tempfile
 import time
 
 STAGE_DIR = "/srv/studio/data/agent-runs"
+# Where the Paperclip server makes run scratch folders (its os.tmpdir()). Not tempfile.gettempdir(): inside a run
+# TMPDIR is the scratch folder itself.
+SCRATCH_ROOT = "/tmp"
 KEEP_SECONDS = 24 * 3600
 FILE_FLAGS = ("--append-system-prompt-file", "--mcp-config")
 DIR_FLAGS = ("--add-dir",)
@@ -64,7 +67,7 @@ def share_scratch(path, group, tmp_root=None):
     under the temp root, named paperclip-run-*, and owned by the running user."""
     if not path:
         return
-    root = os.path.realpath(tmp_root or tempfile.gettempdir())
+    root = os.path.realpath(tmp_root or SCRATCH_ROOT)
     try:
         st = os.lstat(path)
     except FileNotFoundError:

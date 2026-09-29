@@ -89,6 +89,10 @@ Second attempt, after that fix: the CLI read its instructions, then failed with 
 group that one folder (mode 2770), after checking it is a real directory directly under `/tmp`, named
 `paperclip-run-*` and owned by `paperclip`; otherwise the run does not start. Paperclip may not be able to
 remove folders the agent creates inside it with mode 0700, so some may remain in `/tmp` until reboot.
+Third attempt: `agent-stage` refused the real scratch folder. It found the temp root with
+`tempfile.gettempdir()`, which reads `TMPDIR`, and Paperclip sets `TMPDIR` to the scratch folder itself; the
+test had not set `TMPDIR` as Paperclip does. The root is now fixed at `/tmp` (the server's `os.tmpdir()`), and
+the test sets `TMPDIR`, `TEMP` and `TMP` like Paperclip. The run stopped before the CLI started.
 
 Working folder: for a task in a project with a folder, Paperclip starts the run in that folder, not the
 agent's configured `cwd`. The "Studio infrastructure" project's folder is the runtime checkout
