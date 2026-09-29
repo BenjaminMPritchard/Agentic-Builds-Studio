@@ -13,5 +13,5 @@ line in its description (the Clerk reads it) and `blockedByIssueIds` as shown. D
 | "Director inbox" (standing) | Director | none |
 | Recorder back-fill from GitHub history and findings §3 | Recorder | none |
 
-6b stays in its cloud session; the Clerk tracks its PR by branch `phase-6b-design`.
+Superseded 2026-09-29: all Mothers work moves to Paperclip; see `paperclip-import.md`.
 First small PR: add `.studio/project.yaml` (from `project.yaml` here) to the site repo.
