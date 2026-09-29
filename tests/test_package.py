@@ -51,6 +51,12 @@ class Structure(unittest.TestCase):
         routines = json.load(open(p("package/payloads/routines.json")))["routines"]
         self.assertNotIn("Director", [r["assignee"] for r in routines])
 
+    def test_merge_policy_merges_as_the_merge_app(self):
+        from lib.merge_gate import load_policy
+        policy = load_policy(p("policy/autonomous-merge.json"))
+        self.assertEqual(policy["github_app"], {"app_id": 5109343, "key_path": "/etc/studio/merge-gate-app.pem"})
+        self.assertEqual(policy["projects"], {})  # no project is authorised for autonomous merge yet
+
     def test_constitution_and_codeowners(self):
         c = open(p("CONSTITUTION.md")).read()
         for w in ("merge", "live keys", "DNS", "force-push", "sub-agents", "Architect"):
