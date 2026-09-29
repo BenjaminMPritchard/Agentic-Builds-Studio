@@ -87,6 +87,14 @@ One agent at a time: set `adapterConfig.command` to `/srv/studio/bin/agent-exec`
 `STUDIO_AGENT_GITHUB_OWNER` where the agent works on the Studio repository, and remove `GH_TOKEN`
 (Benjamin's token) from its settings. Recorder is already on `agent-exec`.
 
+Status 2026-09-29: done (Benjamin ran the update). All seven Claude agents run through `agent-exec` with
+no `GH_TOKEN`; Architect and Recorder have `STUDIO_AGENT_GITHUB_OWNER=BenjaminMPritchard`; all still
+paused. Until step 4 they have no GitHub access. Rollback revisions (`POST
+/api/agents/<id>/config-revisions/<revision>/rollback`): Recorder `dd7fb8ef`, Architect `ffc1af35`,
+Director `aafb8c4a`, Principal `27eca6de`, Builder-1 `3b1644b4`, Builder-2 `5c7c0250`, Liaison `72b4ca63`.
+Still open: the Clerk (a `process` agent) holds Benjamin's `GH_TOKEN`, and Architect and Recorder hold
+`GH_TOKEN_SITE_READ`; both must be replaced before step 6.
+
 ### 6. Revoke the old token (Benjamin)
 Every agent has held Benjamin's personal token. Once no agent uses it, revoke it on GitHub and give
 the host's own tools a fresh one if they still need one.
