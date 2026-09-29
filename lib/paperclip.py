@@ -18,10 +18,30 @@ class ApiError(Exception):
         self.status = status
 
 
+BOARD_KEY_FILE = os.path.join(os.path.expanduser("~"), ".config", "studio", "paperclip-board-key")
+
+
+def board_key(path=None):
+    """The Board API key for human tools (studio-stop, checks), from a file only its owner can read.
+
+    Used only when no key is given or in PAPERCLIP_API_KEY: agent runs always have their own key. Returns ""
+    when there is no file. A file others could read is refused rather than used.
+    """
+    path = path or os.environ.get("STUDIO_BOARD_KEY_FILE") or BOARD_KEY_FILE
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return ""
+    if st.st_uid != os.geteuid() or st.st_mode & 0o077:
+        raise PermissionError(f"{path} must belong to you with mode 0600; not using it")
+    with open(path) as f:
+        return f.read().strip()
+
+
 class Paperclip:
     def __init__(self, base=None, key=None, run_id=None, cli="paperclipai"):
         self.base = (base or os.environ.get("PAPERCLIP_API_URL", "http://localhost:3100")).rstrip("/")
-        self.key = key or os.environ.get("PAPERCLIP_API_KEY", "")
+        self.key = key or os.environ.get("PAPERCLIP_API_KEY", "") or board_key()
         self.run_id = run_id or os.environ.get("PAPERCLIP_RUN_ID", "")
         self.cli = cli
 

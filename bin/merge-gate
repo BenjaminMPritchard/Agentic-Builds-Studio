@@ -25,7 +25,8 @@ CONFINED_USER = "studio-agent"
 
 def hop(argv):
     """A confined agent may request a decision but must not hold the merge credential: re-run the gate as
-    paperclip through one sudo rule. sudo resets the environment, so the agent cannot steer the gate."""
+    paperclip through one sudo rule. sudo resets the environment, so the agent cannot steer the gate; only
+    its own Paperclip key and run ID pass (for reading the issue), never the API address."""
     cmd = ["sudo", "-n", "-H", "-u", GATE_USER, "--", GATE, *argv[1:]]
     if os.environ.get("STUDIO_MERGE_GATE_DRY_HOP") == "1":
         print(" ".join(cmd))
