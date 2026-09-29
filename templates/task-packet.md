@@ -5,7 +5,7 @@
 - **Authority:** A | B | HUMAN (see skill task-packet)
 - **Engineering risk:** low | medium | high
 - **Approved plan revision:** (B only; Paperclip issue document revision ID)
-- **Assignee:** Builder | Principal | Liaison | Worker
+- **Route:** agent (model) and why, from skill `routing-table`; escalation route if it fails
 - **Allowed paths** (beyond the normal ones; protected paths only if listed): 
 - **Protected / do not touch:** 
 - **Depends on:** 

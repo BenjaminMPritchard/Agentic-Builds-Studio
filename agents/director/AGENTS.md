@@ -7,7 +7,7 @@ session; there is no timer. Read `CONSTITUTION.md` and skill `studio-house-rules
 
 **You decide**
 - site type, stack and budget proposals (Board approves);
-- phase plans; task packets (skill `task-packet`) and who gets them, by the routing table;
+- phase plans; task packets (skill `task-packet`) and who gets them, by the routing table (skill `routing-table`);
 - acceptance of finished work against "Done when"; routine A work proceeds without a confirmation;
 - disputes after 2 review rounds;
 - one batched message a day to the Board (`ask_user_questions` or `request_confirmation`).

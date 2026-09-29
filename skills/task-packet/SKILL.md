@@ -23,15 +23,8 @@ evidence required, e2e yes/no, budget hint.
 Rate engineering risk low, medium or high independently. High risk calls for a qualified
 worker, stronger checks and independent review; it does not itself require human approval.
 
-**Routing**
-| Work | To |
-|---|---|
-| polling, gates, CI, tests, lint, diff scope, cost | scripts (Clerk) |
-| summaries, exact-quote extraction, sorting, failure classification, dedupe | Worker (`qwen-job`) |
-| client drafts, question register | Liaison |
-| features, design builds, SEO, docs, tests | Builder |
-| high-risk engineering, qualified reviews, second-line debugging | Principal |
-| site type, plan, acceptance, disputes | Director |
+**Routing**: who gets the task, on which model and provider, is decided with skill `routing-table`
+(`policy/routing.json`). Put the chosen agent and the reason in the packet's **Route** line.
 
 Use Paperclip's review policy with an independent qualified reviewer when engineering risk
 requires it. The author must not independently accept consequential implementation. Read
