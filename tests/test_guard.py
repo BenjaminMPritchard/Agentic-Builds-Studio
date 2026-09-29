@@ -44,6 +44,12 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("git push -u origin agent/1-x"), 0)
         self.assertEqual(self.bash("git push origin agent/1-main-fix"), 0)
 
+    def test_studio_repo_is_not_cloned_from_the_runtime(self):
+        for c in ["git clone /srv/studio/company-tmp studio-company", "git clone -q /srv/studio/company x",
+                  "cd /srv/studio/work/recorder && git clone file:///srv/studio/company"]:
+            self.assertEqual(self.bash(c), 2, c)
+        self.assertEqual(self.bash("git clone https://github.com/BenjaminMPritchard/Agentic-Builds-Studio.git x"), 0)
+
     def test_push_bare_from_main(self):
         self.assertEqual(self.bash("git push", cwd=self.repo), 2)
 

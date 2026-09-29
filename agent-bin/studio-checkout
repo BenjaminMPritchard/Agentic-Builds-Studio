@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# studio-checkout OWNER/REPO [--read]: clone or refresh https://github.com/OWNER/REPO in the working directory
+# (as ./REPO) for a confined agent run, then report its branch and how it stands against origin/main.
+# Git authenticates through the run's App credential helper (set by agent-exec). --read uses
+# GH_TOKEN_SITE_READ instead, for client site repositories the run's App token does not cover.
+# An existing folder is reused only if its origin is exactly that GitHub URL; anything else (a local
+# path, a URL with a token in it) is refused, so work always starts from GitHub. Local work is never
+# discarded: the helper fetches but does not switch branches or reset.
+set -euo pipefail
+usage() { echo "usage: studio-checkout OWNER/REPO [--read]" >&2; exit 2; }
+[ $# -ge 1 ] && [ $# -le 2 ] || usage
+SLUG="$1"; MODE="${2:-}"
+[[ "$SLUG" =~ ^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$ ]] && [[ "$SLUG" != *..* ]] || usage
+[ -z "$MODE" ] || [ "$MODE" = --read ] || usage
+URL="https://github.com/$SLUG.git"
+DIR="$PWD/${SLUG#*/}"
+GIT=(git)
+if [ "$MODE" = --read ]; then
+  [ -n "${GH_TOKEN_SITE_READ:-}" ] || { echo "studio-checkout: GH_TOKEN_SITE_READ is not set for this run" >&2; exit 4; }
+  # The helper reads the token from the environment when git asks, so it is never written to disk.
+  GIT+=(-c "credential.https://github.com.helper=" -c "credential.https://github.com.helper=!f() { test \"\$1\" = get && printf 'username=x-access-token\\npassword=%s\\n' \"\$GH_TOKEN_SITE_READ\"; }; f")
+fi
+if [ -e "$DIR" ]; then
+  HAVE="$(git -C "$DIR" config --get remote.origin.url 2>/dev/null || true)"
+  if [ "$HAVE" != "$URL" ]; then
+    echo "studio-checkout: $DIR is not a clone of $URL; move it aside (mv \"$DIR\" \"$DIR.old\") and run this again" >&2
+    exit 3
+  fi
+  "${GIT[@]}" -C "$DIR" fetch --quiet --prune origin
+else
+  "${GIT[@]}" clone --quiet "$URL" "$DIR"
+fi
+BRANCH="$(git -C "$DIR" branch --show-current)"
+COUNTS="$(git -C "$DIR" rev-list --left-right --count HEAD...origin/main)"
+DIRTY="$(git -C "$DIR" status --porcelain | wc -l)"
+echo "$DIR"
+echo "branch: ${BRANCH:-(detached)}; ahead of origin/main: ${COUNTS%%[[:space:]]*}; behind: ${COUNTS##*[[:space:]]}; uncommitted files: $DIRTY"
+echo "new work: git -C \"$DIR\" switch -c agent/<task id>-<slug> origin/main"
