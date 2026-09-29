@@ -23,6 +23,10 @@ APP_CONFIG="${STUDIO_AGENTS_APP_CONFIG:-/etc/studio/agents-app.json}"
 OWNER="${STUDIO_AGENT_GITHUB_OWNER:-Agentic-Builds-Studio-Client-Pages}"
 HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 SETENV=()
+# The runtime checkout is not a workspace: a task in a project whose folder is /srv/studio/company starts there,
+# and an agent working in it would be working on the live Studio. Studio tasks have no project.
+RUNTIME="${STUDIO_RUNTIME_DIR:-/srv/studio/company}"
+case "$(pwd -P)/" in "$RUNTIME"/*|"$RUNTIME"-*/*) echo "agent-exec: refusing to run in $(pwd -P), the Studio runtime; take the task out of its project so it runs in the agent's own folder" >&2; exit 2 ;; esac
 case " $* " in *" --settings "*) ;; *) echo "agent-exec: refusing to run without --settings (Guard would not load)" >&2; exit 2 ;; esac
 if [ -e "$APP_CONFIG" ]; then
   TOKEN="$("$HERE/agent-github-token" "$OWNER")" || { echo "agent-exec: no GitHub App token for $OWNER; not starting" >&2; exit 3; }
@@ -44,13 +48,13 @@ CMD=(sudo -n -E -H -u "$AGENT_USER")
 if [ ${#SETENV[@]} -gt 0 ]; then CMD+=("${SETENV[@]}"); else CMD+=(--); fi
 CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
 # Usage caps (bin/studio-quota, policy/quota.json): reserve this run's estimated cost or do not start. A detached
-# watcher releases the reservation once this process (which becomes sudo, then waits for the CLI) is gone.
-# If the watcher is killed too, the next admission
-# finds the process gone and ends the run then.
+# watcher releases the reservation once this process (which becomes sudo, then waits for the CLI) is gone, then
+# removes this run's staged files. If the watcher is killed too, the next run's admission and staging do both.
 QUOTA="${STUDIO_QUOTA:-$HERE/studio-quota}"
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; then
   QTOKEN="$("$QUOTA" admit --provider claude --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$)" || exit $?
-  setsid "$QUOTA" release --provider claude --after-pid $$ "$QTOKEN" </dev/null >/dev/null 2>&1 &
+  setsid sh -c '"$0" release --provider claude --after-pid "$1" "$2"; "$3" --prune' \
+    "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" </dev/null >/dev/null 2>&1 &
 fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo

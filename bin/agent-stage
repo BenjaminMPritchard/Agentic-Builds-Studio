@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print the agent CLI's arguments, NUL-separated, with Paperclip-provided files staged where studio-agent can
 read them, and give the agent group this run's Paperclip scratch folder (lib/agent_stage.py). Run by agent-exec
-as paperclip. Exit 1 with a message if either fails."""
+as paperclip. Exit 1 with a message if either fails. `agent-stage --prune` only removes finished runs' folders."""
 import os
 import sys
 
@@ -12,6 +12,9 @@ from lib import agent_stage  # noqa: E402
 def main(argv):
     parent = os.environ.get("STUDIO_AGENT_STAGE_DIR", agent_stage.STAGE_DIR)
     group = os.environ.get("STUDIO_AGENT_GROUP", "studio")
+    if argv[1:] == ["--prune"]:
+        agent_stage.prune(parent)
+        return 0
     try:
         args = agent_stage.stage(argv[1:], parent=parent, group=group or None)
         if group:
