@@ -101,3 +101,9 @@ the Director may send to the Worker, and larger golden sets should come first fo
 One real Worker task created by the Board: for example `summarise-comment` on an existing comment. Expect
 checkout, a `result` document and `done`; then one deliberately disabled job (`mechanical-edit`) to see the
 hand-back to its creator. Local Qwen only; no Claude or Codex usage.
+
+### Live proof, first attempt (2026-09-29): AGE-12
+Run `e56bf01c` woke on the assignment and printed "no task for this run; nothing to do". Paperclip's `process`
+adapter passes `PAPERCLIP_RUN_ID` but not `PAPERCLIP_TASK_ID` (the old code would have crashed here), and it
+had already checked the task out for the run. The Worker now reads the task from its run record
+(`contextSnapshot.issueId`) and skips its own checkout when `paperclipHarnessCheckedOut` is set.

@@ -25,6 +25,7 @@ class FakePaperclip(Server):
         self.quota = []
         self.paused_calls = []
         self.products = {}  # issue id -> [work product]
+        self.run_records = {}  # run id -> run (GET /api/heartbeat-runs/:id)
         super().__init__(self._handler)
 
     def add(self, **i):
@@ -58,6 +59,8 @@ class FakePaperclip(Server):
                 if m:
                     d = fake.docs.get((m[1], m[2]))
                     return s.send(200, {"body": d, "latestRevisionId": fake.doc_revisions.get((m[1], m[2]), "revision-1")}) if d is not None else s.send(404, {})
+                m = re.fullmatch(r"/api/heartbeat-runs/([\w-]+)", p)
+                if m: return s.send(200, fake.run_records[m[1]]) if m[1] in fake.run_records else s.send(404, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/work-products", p)
                 if m: return s.send(200, fake.products.get(m[1], []))
                 m = re.fullmatch(r"/api/issues/(\w+)/interactions", p)

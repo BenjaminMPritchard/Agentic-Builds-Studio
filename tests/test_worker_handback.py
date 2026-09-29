@@ -27,17 +27,21 @@ class Handback(unittest.TestCase):
         self.fp.stop()
         self.tmp.cleanup()
 
-    def run_worker(self, answers, task="t", **issue):
+    def run_worker(self, answers, task="t", run=None, **issue):
         self.fp.add(**{"id": "t", "title": "Classify", "status": "todo", "assigneeAgentId": "worker", **issue})
         o = FakeOllama(answers)
         env = {"PAPERCLIP_API_URL": self.fp.url, "PAPERCLIP_API_KEY": "k", "PAPERCLIP_AGENT_ID": "worker",
                "OLLAMA_URL": o.url, "STUDIO_DATA": self.tmp.name, "STUDIO_QWEN_DIR": self.tmp.name}
         if task:
             env["PAPERCLIP_TASK_ID"] = task
+        if run:
+            env["PAPERCLIP_RUN_ID"] = run
         try:
             with mock.patch.dict(os.environ, env):
                 if not task:
                     os.environ.pop("PAPERCLIP_TASK_ID", None)
+                if not run:
+                    os.environ.pop("PAPERCLIP_RUN_ID", None)
                 loader = importlib.machinery.SourceFileLoader("qwen_run", os.path.join(ROOT, "bin", "qwen-run"))
                 spec = importlib.util.spec_from_loader(loader.name, loader)
                 mod = importlib.util.module_from_spec(spec)
@@ -94,6 +98,21 @@ class Handback(unittest.TestCase):
     def test_a_wake_without_a_task_does_nothing(self):
         self.assertEqual(self.run_worker([GOOD], task=None), 0)
         self.assertEqual((self.fp.checkouts, self.fp.patches), ([], []))
+
+    def test_the_task_is_found_from_the_run_when_paperclip_does_not_pass_it(self):
+        # Paperclip's process adapter sets PAPERCLIP_RUN_ID but not PAPERCLIP_TASK_ID, and has already checked
+        # the task out for this run (a second checkout would be refused).
+        self.fp.run_records["run-1"] = {"id": "run-1", "contextSnapshot": {
+            "issueId": "t", "wakeReason": "issue_assigned", "paperclipHarnessCheckedOut": True}}
+        self.fp.checkouts.append("t")
+        self.fp.docs[("t", "job")] = json.dumps(self.job)
+        self.assertEqual(self.run_worker([GOOD], task=None, run="run-1", createdByAgentId="director"), 0)
+        self.assertEqual(self.last_patch()["status"], "done")
+
+    def test_a_run_without_an_issue_does_nothing(self):
+        self.fp.run_records["run-2"] = {"id": "run-2", "contextSnapshot": {"wakeReason": "timer"}}
+        self.assertEqual(self.run_worker([GOOD], task=None, run="run-2"), 0)
+        self.assertEqual(self.fp.patches, [])
 
     def test_a_task_someone_else_has_is_left_alone(self):
         self.fp.checkouts.append("t")  # the fake answers 409 for a second checkout
