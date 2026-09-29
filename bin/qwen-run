@@ -77,19 +77,28 @@ def hand_back(pc, task, issue, text):
         pc.patch_issue(task, status="blocked", comment=text + "\n\nNo creator is recorded to hand this back to.")
 
 
+def run_context(pc):
+    """The run's wake context. Paperclip's `process` adapter passes PAPERCLIP_RUN_ID but not the task, so the
+    task is read from the run record (contextSnapshot.issueId), as Paperclip recorded it."""
+    run = os.environ.get("PAPERCLIP_RUN_ID")
+    return (pc.call("GET", f"/api/heartbeat-runs/{run}") or {}).get("contextSnapshot") or {} if run else {}
+
+
 def paperclip_task():
-    task = os.environ.get("PAPERCLIP_TASK_ID")
+    pc = Paperclip()
+    ctx = {} if os.environ.get("PAPERCLIP_TASK_ID") else run_context(pc)
+    task = os.environ.get("PAPERCLIP_TASK_ID") or ctx.get("issueId") or ctx.get("taskId")
     if not task:
         print("no task for this run; nothing to do")  # a timer or on-demand wake without an issue
         return 0
-    pc = Paperclip()
-    try:
-        pc.checkout(task)
-    except ApiError as e:
-        if e.status == 409:
-            print("someone else has this task; stopping")  # never retry a 409
-            return 0
-        raise
+    if not ctx.get("paperclipHarnessCheckedOut"):  # Paperclip may already have checked it out for this run
+        try:
+            pc.checkout(task)
+        except ApiError as e:
+            if e.status == 409:
+                print("someone else has this task; stopping")  # never retry a 409
+                return 0
+            raise
     issue = pc.get_issue(task)
     doc = pc.get_document(task, "job")
     if not doc:
