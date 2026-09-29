@@ -83,6 +83,12 @@ dereferences the skill links, and rewrites the arguments. If staging fails the r
 older than a day are removed at each start. An MCP config can hold the run's own Paperclip key; the staged
 copy is readable by `studio-agent` for up to a day, which a later run could read (agents share one user).
 The three failed attempts made no model calls.
+Second attempt, after that fix: the CLI read its instructions, then failed with `EACCES` creating
+`$TMPDIR/claude-953`. Paperclip gives each run a scratch folder (`/tmp/paperclip-run-*`, mode 0700, owned by
+`paperclip`) as `TMPDIR`, `TEMP` and `TMP`, and removes it after the run. `agent-stage` now gives the `studio`
+group that one folder (mode 2770), after checking it is a real directory directly under `/tmp`, named
+`paperclip-run-*` and owned by `paperclip`; otherwise the run does not start. Paperclip may not be able to
+remove folders the agent creates inside it with mode 0700, so some may remain in `/tmp` until reboot.
 
 Working folder: for a task in a project with a folder, Paperclip starts the run in that folder, not the
 agent's configured `cwd`. The "Studio infrastructure" project's folder is the runtime checkout

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Print the agent CLI's arguments, NUL-separated, with Paperclip-provided files staged where studio-agent can
-read them (lib/agent_stage.py). Run by agent-exec as paperclip. Exit 1 with a message if staging fails."""
+read them, and give the agent group this run's Paperclip scratch folder (lib/agent_stage.py). Run by agent-exec
+as paperclip. Exit 1 with a message if either fails."""
 import os
 import sys
 
@@ -13,6 +14,8 @@ def main(argv):
     group = os.environ.get("STUDIO_AGENT_GROUP", "studio")
     try:
         args = agent_stage.stage(argv[1:], parent=parent, group=group or None)
+        if group:
+            agent_stage.share_scratch(os.environ.get("PAPERCLIP_RUN_SCRATCH_DIR"), group)
     except (OSError, agent_stage.StageError) as e:
         print(f"agent-stage: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
