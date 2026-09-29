@@ -40,3 +40,28 @@ sudo -u paperclip -H env PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin
 ```
 Expect JSON with the account percentages that `/usage` shows you. Then the usual fast-forward of
 `/srv/studio/company`; `agent-exec` picks the change up on the next run. Rollback: tag `pre-m3a`.
+
+## 2. Clerk repairs — implemented (this branch), not yet activated
+
+Defects found reading `lib/clerk.py` (it has only ever run in dry-run):
+
+| Defect | Effect | Fix |
+| --- | --- | --- |
+| Dry-run recorded events as handled | when dry-run ended, everything it had seen (merged PRs, plan approvals) was never acted on | dry-run receipts last one tick; nothing is persisted |
+| Receipt written before the write | a failed Paperclip write was never retried | `once()`: the receipt is kept only after the write succeeds |
+| PRs linked by branch-name prefix, only for issues with a `GitHub:` line | Studio issues (AGE-9 / PR #33) were invisible; any matching PR could close an issue | PRs are followed through the issue's `pull_request` work products (the merge gate's format); a branch-name match is only reported to the Director |
+| Any merged PR marked the issue done | an issue with several PRs, or still in progress, could be closed early | done only when every recorded PR is closed, one merged, and the issue is already `in_review`; otherwise the Director decides |
+| Pacer read Paperclip's quota poll (fails on this host) and paused/resumed agents | never held; would have fought human pauses | removed: `agent-exec` enforces the caps (step 1); the digest reports the ledger |
+| Dry-run tick stored the Director-wake hash | the first live tick could skip a due wake | stored only when live |
+| Receipts grew forever | slow state file | pruned after 60 days |
+
+Agents record PRs with `agent-bin/studio-record-pr <issue id> <PR URL>` (house rules, task packet and Director
+heartbeat updated). It reads the PR from GitHub, writes the `pull_request` and head `commit` work products, and
+archives superseded heads; running it again changes nothing. The Clerk also sets a recorded PR's work
+product to `merged`/`closed` so the merge gate stops counting it as live.
+
+### Activate (Benjamin, after merge)
+The usual fast-forward. The Clerk stays in dry-run (`CLERK_DRY_RUN=1`); read one tick's
+`/srv/studio/data/digest.md` before deciding to turn dry-run off, which is a separate decision.
+`STUDIO_AUTODEPLOY` must stay unset: its `deploy_sync` step fast-forwards the runtime by itself, which
+conflicts with the rule that source changes are activated by hand.

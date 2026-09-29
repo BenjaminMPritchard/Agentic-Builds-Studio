@@ -21,7 +21,9 @@ Paperclip shows where the work stands; repo docs say how the code works. Don't m
    `{type: issue_document, key: plan, revisionId: <latestRevisionId>}` and idempotency key
    `confirmation:{issueId}:plan:{revisionId}`. Proceed only after a human accepts that exact
    revision. HUMAN action waits for direct authority.
-2. One PR per issue. Branch `agent/<Paperclip issue id>-<slug>` (Paperclip creates it, e.g. `agent/AGE-3-pallet-cleanup`; the PR body says `Closes #<GitHub issue>`), in the task's worktree, never on `main`.
+2. One PR per issue. Branch `agent/<Paperclip issue id>-<slug>` (Paperclip creates it, e.g. `agent/AGE-3-pallet-cleanup`; the PR body says `Closes #<GitHub issue>`), in the task's worktree, never on `main`. After opening the PR, and after every push to it, run
+   `studio-record-pr <Paperclip issue id> <PR URL>`: it records the PR and its exact head commit on the issue, which
+   is how the Clerk and the merge gate know the PR belongs to it (a branch name is not proof).
 3. Use the task's isolated workspace and the project's resource rules. Never use the owner's
    checkout or database.
 4. e2e only through `/srv/studio/bin/studio-e2e`, and only when the packet says so or checkout paths changed.

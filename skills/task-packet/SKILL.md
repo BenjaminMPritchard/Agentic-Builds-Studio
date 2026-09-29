@@ -47,6 +47,7 @@ are not authorised, so their PRs require human merge. A B plan must state `**Sco
   (`PATCH /api/issues/{id}`). Create all the issues first, then PATCH each one's blockers and review
   policy, then read one back to check `blockedByIssueIds` is not empty. The Clerk can only unblock what is
   really blocked.
-- Record the GitHub repository, issue, branch, PR and exact head SHA as explicit work products.
+- Record the GitHub repository, issue, branch, PR and exact head SHA as explicit work products
+  (`studio-record-pr <issue id> <PR URL>` does this).
   A branch prefix is not a proof of linkage.
 - Paperclip owns dependency and issue status transitions. Do not mirror its state machine in Clerk.

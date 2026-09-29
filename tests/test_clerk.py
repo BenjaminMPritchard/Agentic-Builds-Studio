@@ -3,7 +3,6 @@ from tests.fakes import FakePaperclip
 from lib.paperclip import Paperclip
 from lib.clerk import Clerk
 from lib import clerk as clerk_mod
-from lib import pacer
 
 
 class ClerkTests(unittest.TestCase):
@@ -19,9 +18,17 @@ class ClerkTests(unittest.TestCase):
     def tearDown(self):
         self.fp.stop(); self.tmp.cleanup()
 
+    def gh(self, args):
+        repo = args[args.index("--repo") + 1]
+        if args[:2] == ["pr", "view"]:
+            return next((p for p in self.prs.get(repo, []) if p["number"] == int(args[2])), None)
+        self.searches.append(args[args.index("--search") + 1])
+        return self.prs.get(repo, [])
+
+    searches = []
+
     def clerk(self, **kw):
-        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda args: self.prs.get(args[args.index("--repo") + 1], []),
-                  director_id="dir", principal_id="prin", **kw)
+        c = Clerk(self.pc, "co", self.tmp.name, gh=self.gh, director_id="dir", principal_id="prin", **kw)
         c.gh_comment = lambda *a: self.gh_comments.append(a)
         return c
 
@@ -30,13 +37,20 @@ class ClerkTests(unittest.TestCase):
     def statuses(self):
         return {i: v["status"] for i, v in self.fp.issues.items()}
 
+    def link(self, issue, repo, n):
+        self.fp.products.setdefault(issue, []).append(
+            {"id": f"wp-{issue}-{n}", "type": "pull_request", "provider": "github", "status": "ready_for_review",
+             "url": f"https://github.com/{repo}/pull/{n}", "metadata": {"repo": repo, "number": n, "headRef": "b"}})
+
     def test_paperclip_owns_dependency_transitions(self):
         self.fp.add(id="w5", title="6d SEO", status="in_review", description="GitHub: o/r#31", assigneeAgentId="a1")
         self.fp.add(id="w6", title="7b", status="blocked", blockedByIssueIds=["w5"], assigneeAgentId="a1")
+        self.link("w5", "o/r", 40)
         self.prs["o/r"] = [{"number": 40, "state": "MERGED", "mergedAt": "2026-09-25", "headRefOid": "abc",
                             "statusCheckRollup": [{"conclusion": "SUCCESS"}], "url": "u"}]
         c = self.clerk(); c.tick()
         self.assertEqual(self.statuses()["w5"], "done")
+        self.assertEqual(self.fp.products["w5"][0]["status"], "merged")
         self.assertTrue(any("Bring `main` into" in b for i, b in self.fp.comments if i == "w6"))
         c2 = self.clerk(); c2.tick()
         self.assertEqual(self.statuses()["w6"], "blocked")
@@ -44,8 +58,47 @@ class ClerkTests(unittest.TestCase):
         n = len(self.fp.comments); self.clerk().tick()  # idempotent
         self.assertEqual(len(self.fp.comments), n)
 
+    def test_a_merge_on_an_issue_still_in_progress_goes_to_the_director(self):
+        self.fp.add(id="t", title="Task", status="in_progress")
+        self.link("t", "o/r", 7)
+        self.prs["o/r"] = [{"number": 7, "state": "MERGED", "mergedAt": "x", "headRefOid": "a", "statusCheckRollup": []}]
+        c = self.clerk(); c.tick()
+        self.assertEqual(self.statuses()["t"], "in_progress")
+        self.assertTrue(any("decide whether it is done" in x for x in c.needs_director))
+
+    def test_done_waits_for_every_recorded_pr(self):
+        self.fp.add(id="t", title="Task", status="in_review")
+        self.link("t", "o/r", 7); self.link("t", "o/r", 8)
+        self.prs["o/r"] = [{"number": 7, "state": "MERGED", "mergedAt": "x", "headRefOid": "a", "statusCheckRollup": []},
+                           {"number": 8, "state": "OPEN", "headRefOid": "b", "statusCheckRollup": []}]
+        self.clerk().tick()
+        self.assertEqual(self.statuses()["t"], "in_review")
+        self.prs["o/r"][1].update(state="CLOSED")
+        self.clerk().tick()
+        self.assertEqual(self.statuses()["t"], "done")
+
+    def test_studio_issues_without_a_github_line_are_followed_through_work_products(self):
+        self.fp.add(id="t", title="Back-fill", status="in_review", identifier="AGE-9")
+        self.link("t", "BenjaminMPritchard/Agentic-Builds-Studio", 33)
+        self.prs["BenjaminMPritchard/Agentic-Builds-Studio"] = [
+            {"number": 33, "state": "MERGED", "mergedAt": "x", "headRefOid": "a52db60", "statusCheckRollup": []}]
+        self.clerk().tick()
+        self.assertEqual(self.statuses()["t"], "done")
+
+    def test_a_pr_found_only_by_branch_name_is_reported_not_actioned(self):
+        self.searches.clear()
+        self.fp.add(id="t", title="T", status="in_review", identifier="AGE-7", description="GitHub: o/r#5")
+        self.prs["o/r"] = [{"number": 9, "state": "MERGED", "mergedAt": "x", "headRefOid": "x", "url": "u9"}]
+        c = self.clerk(); c.tick()
+        self.assertEqual(self.searches, ["head:agent/AGE-7-", "head:agent/5-"])
+        self.assertEqual((self.statuses()["t"], self.fp.comments), ("in_review", []))
+        self.assertTrue(any("studio-record-pr t <PR URL>" in x for x in c.needs_director))
+        c = self.clerk(); c.tick()
+        self.assertEqual(c.needs_director, [])  # reported once
+
     def test_three_red_checks_escalate_to_principal_once(self):
-        self.fp.add(id="t", title="Task", status="in_progress", description="GitHub: o/r#5", assigneeAgentId="a1")
+        self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
+        self.link("t", "o/r", 1)
         for sha in ("a", "b", "c", "c"):
             self.prs["o/r"] = [{"number": 1, "state": "OPEN", "headRefOid": sha, "statusCheckRollup": [{"conclusion": "FAILURE"}]}]
             self.clerk().tick()
@@ -53,9 +106,12 @@ class ClerkTests(unittest.TestCase):
         self.assertEqual(len(esc), 1)
 
     def test_green_open_pr_goes_to_board_digest(self):
-        self.fp.add(id="t", title="Task", status="in_review", description="GitHub: o/r#5")
+        self.fp.add(id="t", title="Task", status="in_review")
         self.fp.add(id="inbox", title="Director inbox", status="todo")
+        self.link("t", "o/r", 9)
         self.prs["o/r"] = [{"number": 9, "state": "OPEN", "headRefOid": "x", "statusCheckRollup": [{"conclusion": "SUCCESS"}]}]
+        self.clerk(dry_run=True).tick()  # a dry-run tick must not use up the wake
+        self.assertEqual(self.woken, [])
         self.clerk().tick()
         self.assertIn("Merge PR #9", self.fp.docs[("inbox", "digest")])
         self.assertLessEqual(len(self.fp.docs[("inbox", "digest")]), 6000)
@@ -64,13 +120,30 @@ class ClerkTests(unittest.TestCase):
         self.clerk().tick()  # same situation: do not wake the Director again
         self.assertEqual(self.woken, [])
 
-    def test_dry_run_writes_no_paperclip_state_and_wakes_nobody(self):
-        self.fp.add(id="t", title="Task", status="in_review", description="GitHub: o/r#5")
+    def test_dry_run_writes_nothing_and_keeps_no_receipts(self):
+        self.fp.add(id="t", title="Task", status="in_review")
         self.fp.add(id="w", title="W", status="blocked", blockedByIssueIds=["t"])
+        self.link("t", "o/r", 9)
         self.prs["o/r"] = [{"number": 9, "state": "MERGED", "mergedAt": "x", "headRefOid": "x", "statusCheckRollup": []}]
-        self.clerk(dry_run=True).tick()
+        for _ in range(2):
+            self.clerk(dry_run=True).tick()
         self.assertEqual((self.fp.patches, self.fp.comments, self.woken), ([], [], []))
         self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "digest.md")))
+        self.clerk().tick()  # dry-run ends: what it saw is acted on now
+        self.assertEqual(self.statuses()["t"], "done")
+        self.assertTrue(any(i == "w" for i, _ in self.fp.comments))
+
+    def test_a_failed_write_is_retried_next_tick(self):
+        self.fp.add(id="t", title="Task", status="in_review")
+        self.link("t", "o/r", 9)
+        self.prs["o/r"] = [{"number": 9, "state": "MERGED", "mergedAt": "x", "headRefOid": "x", "statusCheckRollup": []}]
+        real = self.pc.patch_issue
+        self.pc.patch_issue = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("paperclip down"))
+        self.clerk().tick()
+        self.assertEqual(self.statuses()["t"], "in_review")
+        self.pc.patch_issue = real
+        self.clerk().tick()
+        self.assertEqual(self.statuses()["t"], "done")
 
     def test_accepted_plan_is_copied_to_github_and_wakes_builder(self):
         self.fp.add(id="t", title="Task", status="in_progress", description="GitHub: o/r#5", assigneeAgentId="a1")
@@ -81,13 +154,6 @@ class ClerkTests(unittest.TestCase):
         c = self.clerk(); c.tick()
         self.assertEqual(self.gh_comments[-1][:2], ("o/r", "5"))
         self.assertIn(("a1", False), self.woken)
-
-    def test_branch_search_uses_the_paperclip_identifier(self):
-        seen = []
-        self.fp.add(id="t", title="T", status="in_progress", identifier="AGE-7", description="GitHub: o/r#5")
-        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: seen.append(a[a.index("--search") + 1]) or [])
-        c.tick()
-        self.assertEqual(seen, ["head:agent/AGE-7-", "head:agent/5-"])
 
     def test_pending_plan_is_flagged_not_actioned(self):
         self.fp.add(id="t", title="Task", status="in_progress", assigneeAgentId="a1")
@@ -136,58 +202,25 @@ class ClerkTests(unittest.TestCase):
         self.assertTrue(real.wake_agent("a1", fresh=True))
         self.assertEqual(self.fp.wakes[-1][1]["forceFreshSession"], True)
 
-    def quota(self, session, week):
-        self.fp.quota = [{"provider": "anthropic", "ok": True, "windows": [
-            {"label": "Current session", "usedPercent": session, "resetsAt": "2026-09-26T05:10:00+00:00"},
-            {"label": "Current week (all models)", "usedPercent": week, "resetsAt": "2026-09-28T08:00:00+00:00"}]},
-            {"provider": "openai", "ok": False, "windows": []}]
-
-    def agents3(self):
-        self.fp.agents = [{"id": "a1", "name": "Builder-1", "adapterType": "claude_local", "status": "idle"},
-                          {"id": "a2", "name": "Principal", "adapterType": "claude_local", "status": "paused"},  # human-paused
-                          {"id": "w", "name": "Worker", "adapterType": "process", "status": "idle"}]
-
-    def test_usage_over_limit_pauses_claude_agents_only(self):
-        self.agents3(); self.quota(session=90, week=50)
-        c = self.clerk(); c.tick()
-        self.assertEqual(self.fp.paused_calls, [("a1", "pause")])   # not the process agent, not the already-paused one
-        self.assertEqual(c.state["paused_by_clerk"], ["a1"])
-        self.assertIn("session allowance 90%", c.state["heavy_reason"])
-        self.assertTrue(any("Usage allowance nearly used" in x for x in c.needs_board))
-
-    def test_weekly_limit_ignored_by_default(self):
-        self.agents3(); self.quota(session=10, week=99)
-        self.clerk().tick()
+    def test_usage_caps_are_reported_and_no_agent_is_paused(self):
+        self.fp.agents = [{"id": "a1", "name": "Builder-1", "adapterType": "claude_local", "status": "idle"}]
+        ledger = os.path.join(self.tmp.name, "claude.json")
+        with open(ledger, "w") as f:
+            json.dump({"last": {"t": 0, "five_hour": {"pct": 40, "key": "1pm"}, "week": {"pct": 22, "key": "Mon"}},
+                       "studio": {"five_hour": {"1pm": 4.5}, "week": {"Mon": 1.5}}, "active": {}, "samples": {}}, f)
+        old = clerk_mod.QUOTA_LEDGER
+        try:
+            clerk_mod.QUOTA_LEDGER = ledger
+            c = self.clerk(now=lambda: 600); c.tick()
+            self.assertIn("Claude studio use 4.5 of 12 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
+                          c.state["usage"])
+            self.assertIn("reading 10 min old", c.state["usage"])
+            clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "missing.json")
+            c = self.clerk(); c.tick()
+            self.assertIn("no usage-cap ledger yet", c.state["usage"])
+        finally:
+            clerk_mod.QUOTA_LEDGER = old
         self.assertEqual(self.fp.paused_calls, [])
-
-    def test_resumes_only_what_we_paused_when_usage_drops(self):
-        self.agents3(); self.quota(session=95, week=50); self.clerk().tick()
-        self.fp.paused_calls.clear(); self.quota(session=5, week=50)
-        c = self.clerk(); c.tick()
-        self.assertEqual(self.fp.paused_calls, [("a1", "resume")])  # Principal stays paused: a human did that
-        self.assertEqual(c.state["paused_by_clerk"], [])
-        self.assertIn("session 5%", c.state["usage"])
-
-    def test_under_limits_or_unknown_usage_pauses_nothing(self):
-        self.agents3(); self.quota(session=45, week=88); self.clerk().tick()
-        self.fp.quota = []; self.clerk().tick()   # quota endpoint gives nothing usable
-        self.assertEqual(self.fp.paused_calls, [])
-
-    def test_pacer_dry_run_reports_but_pauses_nobody(self):
-        self.agents3(); self.quota(session=99, week=99)
-        c = self.clerk(dry_run=True); c.tick()
-        self.assertEqual(self.fp.paused_calls, [])
-        self.assertEqual(c.state["paused_by_clerk"], [])
-        self.assertIn("paused", c.notes[0])
-
-    def test_pacer(self):
-        agents = {"a1": "Builder-1", "a2": "Builder-2", "p": "Principal"}
-        runs = [{"agentId": "a1", "status": "running"}, {"agentId": "a2", "status": "running"}]
-        st, heavy = pacer.update({}, runs, agents, now=1000)
-        self.assertFalse(pacer.heavy_allowed(st, heavy, 1000)[0])
-        st, heavy = pacer.update({}, [{"id": "r1", "agentId": "a1", "status": "failed", "error": "Claude usage limit reached"}], agents, now=1000)
-        self.assertFalse(pacer.heavy_allowed(st, heavy, 1001)[0])
-        self.assertTrue(pacer.heavy_allowed(st, 0, 1000 + 3601)[0])
 
     def test_weekly_export_and_cost_report(self):
         self.pc.export_company = lambda cid, out: True

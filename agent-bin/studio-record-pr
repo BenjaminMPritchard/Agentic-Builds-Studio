@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""studio-record-pr ISSUE_ID PR_URL: record a pull request and its exact head commit on a Paperclip issue.
+
+Run it after opening a PR and after every push to it. It writes the work products the merge gate and the
+Clerk read (lib/merge_gate.py): one `pull_request` product (metadata repo, number, headRef) and one `commit`
+product for the current head (metadata repo, sha, branch); older head commits are archived. Running it again
+changes nothing. The PR's details come from GitHub, not from the caller.
+"""
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib.merge_gate import PR_URL  # noqa: E402
+from lib.paperclip import Paperclip  # noqa: E402
+
+STATUS = {"OPEN": "ready_for_review", "MERGED": "merged", "CLOSED": "closed"}
+
+
+def gh_pr(url):
+    r = subprocess.run(["gh", "pr", "view", url, "--json", "number,state,headRefName,headRefOid,url,isDraft"],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode:
+        raise SystemExit(f"studio-record-pr: gh could not read {url}: {r.stderr.strip()[:200]}")
+    return json.loads(r.stdout)
+
+
+def record(pc, issue_id, url, pr, run_id=None):
+    m = PR_URL.match(url)
+    repo, number = m.group(1), int(m.group(2))
+    if pr["number"] != number:
+        raise SystemExit(f"studio-record-pr: GitHub returned PR #{pr['number']} for {url}")
+    branch, sha = pr["headRefName"], pr["headRefOid"]
+    status = "draft" if pr.get("isDraft") and pr["state"] == "OPEN" else STATUS.get(pr["state"], "active")
+    products = pc.call("GET", f"/api/issues/{issue_id}/work-products") or []
+    done = []
+    mine = [w for w in products if w.get("type") == "pull_request" and w.get("provider") == "github"
+            and str((w.get("metadata") or {}).get("repo") or "").lower() == repo.lower()
+            and (w.get("metadata") or {}).get("number") == number]
+    meta = {"repo": repo, "number": number, "headRef": branch}
+    if not mine:
+        pc.call("POST", f"/api/issues/{issue_id}/work-products", {
+            "type": "pull_request", "provider": "github", "externalId": f"{repo}#{number}",
+            "title": f"PR #{number}", "url": f"https://github.com/{repo}/pull/{number}", "status": status,
+            "isPrimary": True, "metadata": meta, **({"createdByRunId": run_id} if run_id else {})})
+        done.append(f"recorded PR #{number}")
+    else:
+        w = mine[0]
+        if w.get("status") != status or (w.get("metadata") or {}).get("headRef") != branch:
+            pc.call("PATCH", f"/api/work-products/{w['id']}", {"status": status, "metadata": meta})
+            done.append(f"updated PR #{number} ({status})")
+    commits = [w for w in products if w.get("type") == "commit" and w.get("provider") == "github"
+               and str((w.get("metadata") or {}).get("repo") or "").lower() == repo.lower()
+               and (w.get("metadata") or {}).get("branch") == branch]
+    if not any((w.get("metadata") or {}).get("sha") == sha and w.get("status") != "archived" for w in commits):
+        pc.call("POST", f"/api/issues/{issue_id}/work-products", {
+            "type": "commit", "provider": "github", "externalId": sha, "title": f"{branch} @ {sha[:7]}",
+            "url": f"https://github.com/{repo}/commit/{sha}", "status": "active",
+            "metadata": {"repo": repo, "sha": sha, "branch": branch}, **({"createdByRunId": run_id} if run_id else {})})
+        done.append(f"recorded head {sha[:7]}")
+    for w in commits:
+        if (w.get("metadata") or {}).get("sha") != sha and w.get("status") != "archived":
+            pc.call("PATCH", f"/api/work-products/{w['id']}", {"status": "archived"})
+            done.append(f"archived old head {str((w.get('metadata') or {}).get('sha'))[:7]}")
+    return done
+
+
+def main(argv):
+    if len(argv) != 3 or not PR_URL.match(argv[2]):
+        print("usage: studio-record-pr ISSUE_ID https://github.com/OWNER/REPO/pull/N", file=sys.stderr)
+        return 2
+    done = record(Paperclip(), argv[1], argv[2], gh_pr(argv[2]), os.environ.get("PAPERCLIP_RUN_ID"))
+    print("; ".join(done) or "already recorded")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

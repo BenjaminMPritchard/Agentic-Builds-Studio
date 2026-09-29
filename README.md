@@ -42,7 +42,7 @@ the remaining checks.
 | `agents/`, `skills/` | Role instructions and reusable practices |
 | `package/` | Paperclip configuration reference, with placeholders |
 | `lib/paperclip.py` | Small Paperclip API client |
-| `lib/clerk.py`, `lib/pacer.py` | Existing deterministic integration and capacity code |
+| `lib/clerk.py`, `lib/quota.py` | Deterministic integration (Clerk) and usage caps |
 | `lib/worker.py`, `qwen/` | Bounded local Worker harness |
 | `bin/guard` | Claude hook defence in depth, not a security boundary |
 | `playbook/`, `projects/`, `upgrades/` | Procedures, curated memory and proposals |

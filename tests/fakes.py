@@ -24,6 +24,7 @@ class FakePaperclip(Server):
         self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
         self.quota = []
         self.paused_calls = []
+        self.products = {}  # issue id -> [work product]
         super().__init__(self._handler)
 
     def add(self, **i):
@@ -57,6 +58,8 @@ class FakePaperclip(Server):
                 if m:
                     d = fake.docs.get((m[1], m[2]))
                     return s.send(200, {"body": d, "latestRevisionId": fake.doc_revisions.get((m[1], m[2]), "revision-1")}) if d is not None else s.send(404, {})
+                m = re.fullmatch(r"/api/issues/(\w+)/work-products", p)
+                if m: return s.send(200, fake.products.get(m[1], []))
                 m = re.fullmatch(r"/api/issues/(\w+)/interactions", p)
                 if m: return s.send(200, fake.interactions_.get(m[1], []))
                 m = re.fullmatch(r"/api/issues/(\w+)", p)
@@ -73,7 +76,13 @@ class FakePaperclip(Server):
                 s.send(200, {"latestRevisionId": fake.doc_revisions[key]})
 
             def do_PATCH(s):
-                m = re.fullmatch(r"/api/issues/(\w+)", s.path); b = s.body()
+                b = s.body()
+                m = re.fullmatch(r"/api/work-products/([\w-]+)", s.path)
+                if m:
+                    for w in (w for ws in fake.products.values() for w in ws if w["id"] == m[1]):
+                        w.update(b); return s.send(200, w)
+                    return s.send(404, {})
+                m = re.fullmatch(r"/api/issues/(\w+)", s.path)
                 fake.patches.append((m[1], b)); fake.issues[m[1]].update({k: v for k, v in b.items() if k != "comment"})
                 s.send(200, {})
 
@@ -81,6 +90,12 @@ class FakePaperclip(Server):
                 b = s.body()
                 m = re.fullmatch(r"/api/issues/(\w+)/comments", s.path)
                 if m: fake.comments.append((m[1], b["body"])); return s.send(200, {})
+                m = re.fullmatch(r"/api/issues/(\w+)/work-products", s.path)
+                if m:
+                    if b.get("type") not in ("pull_request", "commit") or not b.get("provider") or not b.get("title"):
+                        return s.send(400, {"error": "type+provider+title"})
+                    w = {"id": f"wp{sum(map(len, fake.products.values())) + 1}", "status": "active", **b}
+                    fake.products.setdefault(m[1], []).append(w); return s.send(201, w)
                 m = re.fullmatch(r"/api/issues/(\w+)/checkout", s.path)
                 if m:
                     if "agentId" not in b or "expectedStatuses" not in b: return s.send(400, {"error": "agentId+expectedStatuses"})
