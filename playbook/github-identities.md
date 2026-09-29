@@ -68,6 +68,9 @@ git uses it through `gh`. The account is the agent's `STUDIO_AGENT_GITHUB_OWNER`
 start. Tokens last one hour; longer runs lose GitHub access and must be re-woken.
 
 ### 4. Install the keys on the host (Benjamin) — only after every Claude agent is confined
+Status 2026-09-29: done. All three files are root:paperclip 0640. As `paperclip`, each App issued a
+token: `abs-agents` for both accounts, `abs-merge-gate-1` for the Studio repository. The policy now names
+the merge App (this PR).
 While any agent still runs as `paperclip`, it could read keys readable by `paperclip`. After step 5:
 ```bash
 sudo install -D -o root -g paperclip -m 0640 ~/Downloads/<merge-gate>.pem /etc/studio/merge-gate-app.pem
