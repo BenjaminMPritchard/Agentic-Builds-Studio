@@ -68,6 +68,9 @@ git uses it through `gh`. The account is the agent's `STUDIO_AGENT_GITHUB_OWNER`
 start. Tokens last one hour; longer runs lose GitHub access and must be re-woken.
 
 ### 4. Install the keys on the host (Benjamin) — only after every Claude agent is confined
+Status 2026-09-29: done. All three files are root:paperclip 0640. As `paperclip`, each App issued a
+token: `abs-agents` for both accounts, `abs-merge-gate-1` for the Studio repository. The policy now names
+the merge App (this PR).
 While any agent still runs as `paperclip`, it could read keys readable by `paperclip`. After step 5:
 ```bash
 sudo install -D -o root -g paperclip -m 0640 ~/Downloads/<merge-gate>.pem /etc/studio/merge-gate-app.pem
@@ -83,6 +86,14 @@ Then Claude adds `"github_app": {"app_id": 5109343, "key_path": "/etc/studio/mer
 One agent at a time: set `adapterConfig.command` to `/srv/studio/bin/agent-exec`, set
 `STUDIO_AGENT_GITHUB_OWNER` where the agent works on the Studio repository, and remove `GH_TOKEN`
 (Benjamin's token) from its settings. Recorder is already on `agent-exec`.
+
+Status 2026-09-29: done (Benjamin ran the update). All seven Claude agents run through `agent-exec` with
+no `GH_TOKEN`; Architect and Recorder have `STUDIO_AGENT_GITHUB_OWNER=BenjaminMPritchard`; all still
+paused. Until step 4 they have no GitHub access. Rollback revisions (`POST
+/api/agents/<id>/config-revisions/<revision>/rollback`): Recorder `dd7fb8ef`, Architect `ffc1af35`,
+Director `aafb8c4a`, Principal `27eca6de`, Builder-1 `3b1644b4`, Builder-2 `5c7c0250`, Liaison `72b4ca63`.
+Still open: the Clerk (a `process` agent) holds Benjamin's `GH_TOKEN`, and Architect and Recorder hold
+`GH_TOKEN_SITE_READ`; both must be replaced before step 6.
 
 ### 5b. The Clerk uses the agents' App (Claude, then Benjamin)
 The Clerk is a script run as `paperclip`, not a Claude agent. Its `gh` calls (listing agent PRs, posting
