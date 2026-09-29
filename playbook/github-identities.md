@@ -95,6 +95,12 @@ Director `aafb8c4a`, Principal `27eca6de`, Builder-1 `3b1644b4`, Builder-2 `5c7c
 Still open: the Clerk (a `process` agent) holds Benjamin's `GH_TOKEN`, and Architect and Recorder hold
 `GH_TOKEN_SITE_READ`; both must be replaced before step 6.
 
+### 5b. The Clerk uses the agents' App (Claude, then Benjamin)
+The Clerk is a script run as `paperclip`, not a Claude agent. Its `gh` calls (listing agent PRs, posting
+approved plans on GitHub issues) now use an `abs-agents` token for the repository's owner, cached for 50
+minutes, instead of any inherited token. Once that is activated, remove `GH_TOKEN` from the Clerk's
+settings in Paperclip.
+
 ### 6. Revoke the old token (Benjamin)
 Every agent has held Benjamin's personal token. Once no agent uses it, revoke it on GitHub and give
 the host's own tools a fresh one if they still need one.
