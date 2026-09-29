@@ -107,3 +107,9 @@ Run `e56bf01c` woke on the assignment and printed "no task for this run; nothing
 adapter passes `PAPERCLIP_RUN_ID` but not `PAPERCLIP_TASK_ID` (the old code would have crashed here), and it
 had already checked the task out for the run. The Worker now reads the task from its run record
 (`contextSnapshot.issueId`) and skips its own checkout when `paperclipHarnessCheckedOut` is set.
+
+Second attempt: the hand-back itself worked live. The Worker found AGE-12 from its run, then commented "the
+`job` document is not valid JSON" and returned the task to its creator (Benjamin); Paperclip logged the run as
+"cancelled before issue reassignment" because the task had moved. The job was rejected because Paperclip
+returns a stored JSON body with real line breaks where the writer had `\n` escapes; the Worker now parses job
+documents with `strict=False`.

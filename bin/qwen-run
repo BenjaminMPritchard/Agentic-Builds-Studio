@@ -105,7 +105,9 @@ def paperclip_task():
         hand_back(pc, task, issue, "Worker: this task has no `job` document, so there is nothing to run.")
         return 1
     try:
-        doc = json.loads(doc["body"]) if isinstance(doc.get("body"), str) else doc.get("body", doc)
+        # strict=False: Paperclip stores documents as markdown, and a stored JSON body can come back with real line
+        # breaks inside its strings where the writer had \n escapes.
+        doc = json.loads(doc["body"], strict=False) if isinstance(doc.get("body"), str) else doc.get("body", doc)
     except ValueError as e:
         hand_back(pc, task, issue, f"Worker: the `job` document is not valid JSON ({e}).")
         return 1
