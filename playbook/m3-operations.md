@@ -65,3 +65,18 @@ The usual fast-forward. The Clerk stays in dry-run (`CLERK_DRY_RUN=1`); read one
 `/srv/studio/data/digest.md` before deciding to turn dry-run off, which is a separate decision.
 `STUDIO_AUTODEPLOY` must stay unset: its `deploy_sync` step fast-forwards the runtime by itself, which
 conflicts with the rule that source changes are activated by hand.
+
+## 3. Workspace safety — implemented (this branch), not yet activated
+
+| Gap | Fix |
+| --- | --- |
+| A task in a project whose folder is the runtime checkout starts the agent in `/srv/studio/company` (seen with AGE-9); the rule "Studio tasks have no project" was only written down | `agent-exec` refuses to start in `/srv/studio/company` or `/srv/studio/company-*` (exit 2, with the reason) |
+| Each confined run left its `/tmp/paperclip-run-*` scratch folder behind: the agent's subfolders are `studio-agent`'s, so Paperclip's clean-up could not remove them | `agent-stage` gives the scratch folder a default ACL, so everything created in it stays removable by `paperclip` |
+| Staged copies (including an MCP config that can hold the run's Paperclip key) were kept for 24 hours | run folders are named after the `agent-exec` process and removed once it is gone: by the post-run watcher (`agent-stage --prune`), or at the next run's staging; 24 hours stays as the backstop |
+
+### Activate (Benjamin, after merge)
+The usual fast-forward. Then, with every agent paused (they are), remove the scratch folders earlier runs
+left behind; this needs root because the agent's files inside are not paperclip's:
+```sh
+ls -d /tmp/paperclip-run-* && sudo rm -rf /tmp/paperclip-run-*
+```

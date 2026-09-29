@@ -2,6 +2,7 @@
 import grp
 import json
 import os
+import pwd
 import shutil
 import stat
 import subprocess
@@ -125,6 +126,47 @@ class Stage(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.dirname(new[new.index("--add-dir") + 1])))
 
 
+class Cleanup(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.parent = os.path.join(self.tmp, "agent-runs")
+        self.args = ["--append-system-prompt-file", os.path.join(self.tmp, "i.md"), "--settings", "s.json"]
+        with open(self.args[1], "w") as f:
+            f.write("x\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def run_dir(self, pid):
+        out = agent_stage.stage(self.args, parent=self.parent, group=MY_GROUP, owner_pid=pid)
+        return os.path.dirname(out[1])
+
+    def age(self, d, seconds):
+        t = os.path.getmtime(d) - seconds
+        os.utime(d, (t, t))
+
+    def test_a_finished_runs_folder_is_removed_and_a_live_one_kept(self):
+        done, live, fresh = self.run_dir(111), self.run_dir(222), self.run_dir(333)
+        self.assertTrue(os.path.basename(done).startswith("run-111-"))
+        self.age(done, 120); self.age(live, 120)
+        agent_stage.prune(self.parent, alive=lambda pid: pid == 222)
+        self.assertFalse(os.path.exists(done))
+        self.assertTrue(os.path.exists(live))
+        self.assertTrue(os.path.exists(fresh))  # its process is "gone" too, but it was made under a minute ago
+
+    def test_the_folder_is_named_after_agent_exec(self):
+        out = agent_stage.stage(self.args, parent=self.parent, group=MY_GROUP)
+        self.assertTrue(os.path.basename(os.path.dirname(out[1])).startswith(f"run-{os.getppid()}-"))
+
+    def test_the_cli_prunes(self):
+        d = self.run_dir(999999999)
+        self.age(d, 120)
+        r = subprocess.run([os.path.join(ROOT, "bin", "agent-stage"), "--prune"], capture_output=True, text=True,
+                           env={**os.environ, "STUDIO_AGENT_STAGE_DIR": self.parent})
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
+        self.assertFalse(os.path.exists(d))
+
+
 class Scratch(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()  # stands in for /tmp
@@ -141,6 +183,16 @@ class Scratch(unittest.TestCase):
         agent_stage.share_scratch(self.dir, self.group, tmp_root=self.root)
         st = os.stat(self.dir)
         self.assertEqual((stat.S_IMODE(st.st_mode), st.st_gid), (0o2770, self.gid))
+
+    def test_what_the_agent_creates_stays_removable_by_paperclip(self):
+        agent_stage.share_scratch(self.dir, self.group, tmp_root=self.root)
+        acl = subprocess.run(["getfacl", "-p", self.dir], capture_output=True, text=True).stdout
+        me = pwd.getpwuid(os.geteuid()).pw_name
+        self.assertIn(f"default:user:{me}:rwx", acl)
+        self.assertIn(f"default:group:{self.group}:rwx", acl)
+        sub = os.path.join(self.dir, "npm-cache")
+        os.mkdir(sub, 0o755)  # as the agent would, under its umask
+        self.assertIn(f"user:{me}:rwx", subprocess.run(["getfacl", "-p", sub], capture_output=True, text=True).stdout)
 
     def test_nothing_to_do_without_a_scratch_folder(self):
         agent_stage.share_scratch(None, self.group, tmp_root=self.root)
@@ -204,6 +256,20 @@ class AgentExecStaging(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PAPERCLIP_RUN_SCRATCH_DIR": self.tmp}):
             r = self.exec_(self.instructions)
         self.assertEqual((r.returncode, r.stdout), (3, ""))
+
+    def test_the_runtime_checkout_is_refused_as_a_working_folder(self):
+        runtime = os.path.join(self.tmp, "company")
+        for d in (runtime, os.path.join(runtime, "agents"), runtime + "-tmp"):
+            os.makedirs(d, exist_ok=True)
+            env = {**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1", "STUDIO_AGENTS_APP_CONFIG": "/nonexistent",
+                   "STUDIO_RUNTIME_DIR": runtime, "STUDIO_AGENT_STAGE_DIR": os.path.join(self.tmp, "runs")}
+            r = subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
+                               capture_output=True, text=True, env=env, cwd=d)
+            self.assertEqual((r.returncode, r.stdout), (2, ""), d)
+            self.assertIn("the Studio runtime", r.stderr)
+        r = subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
+                           capture_output=True, text=True, env=env, cwd=self.tmp)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_if_staging_fails_the_run_does_not_start(self):
         r = self.exec_(os.path.join(self.tmp, "missing.md"))
