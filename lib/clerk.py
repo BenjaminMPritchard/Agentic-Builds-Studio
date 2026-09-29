@@ -143,21 +143,28 @@ class Clerk:
         for i in issues:
             if i.get("status") in ("done", "cancelled"):
                 continue
-            products = self.pc.work_products(i["id"]) or []
-            linked = [(w, *merge_gate.PR_URL.match(w["url"]).groups()) for w in products
-                      if w.get("type") == "pull_request" and w.get("provider") == "github"
-                      and merge_gate.PR_URL.match(w.get("url") or "")]
-            if not linked:
-                self.unlinked(i)
-                continue
-            prs = []
-            for w, repo, num in linked:
-                pr = self.gh(["pr", "view", num, "--repo", repo,
-                              "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
-                if pr:
-                    self.pr_state(i, pr, w)
-                    prs.append(pr)
-            self.merged_means_done(i, prs, issues)
+            try:
+                self.sync_issue(i, issues)
+            except Exception as e:  # one unreadable issue must not hide the others
+                self.log("issue_error", step="github_sync", task=i["id"], error=str(e)[:300])
+                self.notes.append(f"{i.get('identifier') or i['title']}: GitHub check failed: {str(e)[:120]}")
+
+    def sync_issue(self, i, issues):
+        products = self.pc.work_products(i["id"]) or []
+        linked = [(w, *merge_gate.PR_URL.match(w["url"]).groups()) for w in products
+                  if w.get("type") == "pull_request" and w.get("provider") == "github"
+                  and merge_gate.PR_URL.match(w.get("url") or "")]
+        if not linked:
+            self.unlinked(i)
+            return
+        prs = []
+        for w, repo, num in linked:
+            pr = self.gh(["pr", "view", num, "--repo", repo,
+                          "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
+            if pr:
+                self.pr_state(i, pr, w)
+                prs.append(pr)
+        self.merged_means_done(i, prs, issues)
 
     def unlinked(self, issue):
         m = GH_LINK.search(issue.get("description") or "")

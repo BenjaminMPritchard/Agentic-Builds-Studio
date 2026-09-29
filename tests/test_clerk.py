@@ -133,6 +133,18 @@ class ClerkTests(unittest.TestCase):
         self.assertEqual(self.statuses()["t"], "done")
         self.assertTrue(any(i == "w" for i, _ in self.fp.comments))
 
+    def test_one_unreadable_issue_does_not_hide_the_others(self):
+        self.fp.add(id="bad", title="Old org", status="backlog", identifier="AGE-6", description="GitHub: gone/r#14")
+        self.fp.add(id="t", title="Task", status="in_review")
+        self.link("t", "o/r", 9)
+        self.prs["o/r"] = [{"number": 9, "state": "MERGED", "mergedAt": "x", "headRefOid": "x", "statusCheckRollup": []}]
+        gh = self.gh
+        c = Clerk(self.pc, "co", self.tmp.name, director_id="dir", principal_id="prin",
+                  gh=lambda a: (_ for _ in ()).throw(RuntimeError("HTTP 404")) if "gone/r" in a else gh(a))
+        c.tick()
+        self.assertEqual(self.statuses()["t"], "done")
+        self.assertTrue(any(n.startswith("AGE-6: GitHub check failed: HTTP 404") for n in c.notes), c.notes)
+
     def test_a_failed_write_is_retried_next_tick(self):
         self.fp.add(id="t", title="Task", status="in_review")
         self.link("t", "o/r", 9)
