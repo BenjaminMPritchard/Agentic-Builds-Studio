@@ -155,3 +155,9 @@ change, so it needs your authorisation). No change made.
 ## After Milestone 2
 With steps 3–6 done, the Constitution's precondition for authorising a project's autonomous merge is
 met; authorising one is still a separate decision recorded in `policy/autonomous-merge.json`.
+
+Status 2026-09-29: **Milestone 2 complete.** With `studio-checkout` activated (`dd6e7e3`), the Recorder's run
+`dc3e12f6` cloned the studio repo from GitHub and opened PR #33 as `app/abs-agents` (merged by Benjamin). Run
+`0bcab61b` then ran `merge-gate check` on it from inside the confined run: sudo logged `studio-agent` →
+`paperclip` running the gate, which refused with "autonomous merge is not authorised for this project", as
+intended.

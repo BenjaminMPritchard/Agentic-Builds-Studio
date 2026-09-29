@@ -1,0 +1,273 @@
+"""Usage caps: readings, studio attribution, admission and the agent-exec wiring."""
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+
+from lib import quota
+from lib.quota import QuotaError
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(ROOT, "policy", "quota.json")) as _f:
+    POLICY = json.load(_f)["claude"]
+
+USAGE = """You are currently using your subscription to power your Claude Code usage
+
+Current session: {s}% used · resets {sk}
+Current week (all models): {w}% used · resets {wk}
+
+What's contributing to your limits usage?
+Last 24h · 724 requests · 3 sessions
+"""
+
+
+def reading(s, w, sk="Sep 29, 6:50am (Europe/London)", wk="Oct 5, 9am (Europe/London)", extra=""):
+    return quota.parse_usage(USAGE.format(s=s, w=w, sk=sk, wk=wk) + extra)
+
+
+def alive(pid):
+    return pid != 999
+
+
+class Parse(unittest.TestCase):
+    def test_real_output(self):
+        r = reading(73, 22)
+        self.assertEqual(r["five_hour"], {"pct": 73.0, "key": "Sep 29, 6:50am (Europe/London)"})
+        self.assertEqual(r["week"], {"pct": 22.0, "key": "Oct 5, 9am (Europe/London)"})
+        self.assertEqual(r["other"], {})
+
+    def test_model_specific_week_is_kept_separately(self):
+        r = reading(1, 2, extra="Current week (Opus): 40% used · resets Oct 5, 9am (Europe/London)\n")
+        self.assertEqual(r["other"], {"Opus": 40.0})
+
+    def test_no_reading_is_an_error_not_zero(self):
+        for text in ("", "Error: not logged in", "Current session: 5% used · resets 1pm\n"):
+            with self.assertRaises(QuotaError, msg=text):
+                quota.parse_usage(text)
+
+
+class Controller(unittest.TestCase):
+    def setUp(self):
+        self.l = quota.empty()
+        self.t = 1000.0
+
+    def admit(self, r, agent="rec", pid=1):
+        self.t += 60
+        return quota.admit(self.l, r, agent, pid, POLICY, self.t, pid_alive=alive)
+
+    def test_usage_while_a_run_is_active_counts_as_studio_and_otherwise_as_personal(self):
+        tok, why = self.admit(reading(50, 20))
+        self.assertTrue(tok, why)
+        quota.release(self.l, tok, reading(53, 20.5), self.t)
+        # Personal use between runs is not studio use.
+        tok2, _ = self.admit(reading(70, 25))
+        s = quota.status(self.l, reading(70, 25), POLICY)
+        self.assertEqual(s["studio"], {"five_hour": 3.0, "week": 0.5})
+        self.assertEqual(self.l["samples"]["rec"], [[3.0, 0.5]])
+        self.assertIn(tok2, self.l["active"])
+
+    def test_the_studio_five_hour_cap_refuses_a_run(self):
+        tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, reading(18.5, 11), self.t)  # studio has used 8.5 of 12
+        tok, why = self.admit(reading(18.5, 11))
+        self.assertIsNone(tok)  # 8.5 + 3 (estimate) + 1 (margin) > 12
+        self.assertTrue(any(w.startswith("studio 5-hour") for w in why), why)
+
+    def test_exactly_at_the_cap_is_allowed(self):
+        tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, reading(18, 10), self.t)
+        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 8.0
+        tok, why = self.admit(reading(18, 10))
+        self.assertTrue(tok, why)
+
+    def test_reservations_of_active_runs_count(self):
+        runs = [self.admit(reading(0, 0), pid=p)[0] for p in (1, 2, 3)]  # 3 x (3 + 1 margin) <= 12
+        self.assertTrue(all(runs))
+        tok, why = self.admit(reading(0, 0), pid=4)
+        self.assertIsNone(tok)
+        self.assertIn("reserved 9", why[0])
+
+    def test_a_new_window_starts_studio_use_again(self):
+        tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, reading(20, 11), self.t)
+        tok, why = self.admit(reading(2, 11, sk="Sep 29, 11:50am (Europe/London)"))
+        self.assertTrue(tok, why)
+        self.assertEqual(quota.status(self.l, reading(2, 11, sk="Sep 29, 11:50am (Europe/London)"), POLICY)
+                         ["studio"]["five_hour"], 0.0)
+
+    def fresh(self, studio_week, account_week):
+        self.l = quota.empty()
+        self.l["studio"]["week"]["Oct 5, 9am (Europe/London)"] = studio_week
+        return self.admit(reading(0, account_week))
+
+    def test_a_run_across_a_window_reset_counts_in_the_new_window(self):
+        tok, _ = self.admit(reading(10, 10))
+        new = reading(2, 10.5, sk="Sep 29, 11:50am (Europe/London)")
+        quota.release(self.l, tok, new, self.t)
+        self.assertEqual(quota.status(self.l, new, POLICY)["studio"], {"five_hour": 2.0, "week": 0.5})
+
+    def test_the_weekly_caps(self):
+        self.assertTrue(self.fresh(79, 79)[0])  # 79 + 0.5 + 0.5 = 80: at the studio cap, allowed
+        tok, why = self.fresh(79.5, 79.5)
+        self.assertIsNone(tok)
+        self.assertTrue(any(w.startswith("studio weekly") for w in why), why)
+        # Personal use 5 of 20: 15 stays free for Ben. 75 + 0.5 + 0.5 + 15 = 91 fits.
+        self.assertTrue(self.fresh(70, 75)[0])
+        # Personal use far beyond 20 does not stop the studio below its own cap: 95 + 1 = 96 fits.
+        self.assertTrue(self.fresh(10, 95)[0])
+        # Ben's unused share is added on top: 79.5 studio + 0.5 personal leaves 19.5 for him -> refused twice.
+        tok, why = self.fresh(79.5, 80)
+        self.assertTrue(any("personal 19.5" in w for w in why), why)
+
+    def test_account_week_nearly_full_refuses(self):
+        tok, why = self.admit(reading(0, 99.5))
+        self.assertIsNone(tok)
+        self.assertTrue(any(w.startswith("account weekly") for w in why), why)
+
+    def test_account_five_hour_nearly_full_refuses(self):
+        tok, why = self.admit(reading(97, 10))
+        self.assertIsNone(tok)
+        self.assertTrue(any(w.startswith("account 5-hour") for w in why), why)
+
+    def test_a_model_limit_that_is_full_refuses(self):
+        r = reading(0, 0, extra="Current week (Opus): 100% used · resets Oct 5, 9am (Europe/London)\n")
+        self.assertIsNone(self.admit(r)[0])
+
+    def test_estimates_follow_measured_runs_after_enough_samples(self):
+        self.l["samples"]["rec"] = [[5.0, 1.0], [2.0, 0.1], [0.2, 0.0]]
+        self.assertEqual(quota.estimate(self.l, "rec", POLICY), {"five_hour": 5.0, "week": 1.0})
+        self.l["samples"]["rec"] = [[0.2, 0.0]] * 3
+        self.assertEqual(quota.estimate(self.l, "rec", POLICY), POLICY["min_job"])
+        self.assertEqual(quota.estimate(self.l, "other", POLICY), POLICY["default_job"])
+
+    def test_a_run_whose_process_is_gone_ends_at_the_next_reading_and_is_counted_until_then(self):
+        tok, _ = self.admit(reading(10, 10), pid=999)  # pid 999 is "gone" in these tests
+        tok2, _ = self.admit(reading(14, 10))
+        self.assertNotIn(tok, self.l["active"])
+        self.assertEqual(self.l["samples"]["rec"], [[4.0, 0.0]])
+        self.assertIn(tok2, self.l["active"])
+
+    def test_release_without_a_reading_keeps_the_run_counted(self):
+        tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, None, self.t)
+        self.assertTrue(self.l["active"][tok]["ended"])
+        self.admit(reading(13, 10), pid=2)
+        self.assertNotIn(tok, self.l["active"])
+        self.assertEqual(self.l["samples"]["rec"], [[3.0, 0.0]])
+
+    def test_very_old_runs_are_ended(self):
+        tok, _ = self.admit(reading(10, 10))
+        self.t += POLICY["max_run_hours"] * 3600 + 1
+        self.admit(reading(10, 10), pid=2)
+        self.assertNotIn(tok, self.l["active"])
+
+
+class Cli(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.claude = os.path.join(self.tmp, "claude")
+        self.usage(40, 10)
+        self.env = {**os.environ, "STUDIO_QUOTA_DIR": os.path.join(self.tmp, "q"), "STUDIO_QUOTA_CLAUDE_CLI": self.claude,
+                    "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-run", "ANTHROPIC_API_KEY": "sk-ant-api"}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def usage(self, s, w, code=0):
+        with open(self.claude, "w") as f:
+            f.write("#!/usr/bin/env bash\n[ \"$1 $2\" = \"-p /usage\" ] || exit 9\n"
+                    "[ -z \"$CLAUDE_CODE_OAUTH_TOKEN$ANTHROPIC_API_KEY\" ] || exit 8\ncat <<'EOF'\n"
+                    + USAGE.format(s=s, w=w, sk="1pm", wk="Mon") + f"EOF\nexit {code}\n")
+        os.chmod(self.claude, 0o755)
+
+    def q(self, *args):
+        return subprocess.run([os.path.join(ROOT, "bin", "studio-quota"), *args], capture_output=True, text=True,
+                              env=self.env)
+
+    def test_admit_release_and_status(self):
+        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid()))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        token = r.stdout.strip()
+        self.usage(45, 11)
+        self.assertEqual(self.q("release", "--provider", "claude", token).returncode, 0)
+        s = json.loads(self.q("status", "--provider", "claude").stdout)
+        self.assertEqual((s["studio"], s["active_runs"]), ({"five_hour": 5.0, "week": 1.0}, 0))
+        self.assertEqual(os.stat(os.path.join(self.tmp, "q", "claude.json")).st_mode & 0o777, 0o600)
+
+    def test_release_waits_for_the_run_to_end(self):
+        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid()))
+        token = r.stdout.strip()
+        run = subprocess.Popen(["sleep", "1"])
+        env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0"}
+        rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
+                                "--after-pid", str(run.pid), token], env=env)
+        time.sleep(0.5)
+        self.assertIsNone(rel.poll())  # still waiting while the run is alive
+        run.wait()
+        self.assertEqual(rel.wait(timeout=5), 0)
+        self.assertEqual(json.loads(self.q("status", "--provider", "claude").stdout)["active_runs"], 0)
+
+    def test_refusal_and_no_reading(self):
+        self.usage(99, 10)
+        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", "1")
+        self.assertEqual((r.returncode, r.stdout), (5, ""))
+        self.assertIn("account 5-hour", r.stderr)
+        self.usage(1, 1, code=1)
+        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", "1")
+        self.assertEqual((r.returncode, r.stdout), (6, ""))
+        r = self.q("admit", "--provider", "codex", "--agent", "rec", "--pid", "1")
+        self.assertEqual(r.returncode, 6)
+        self.assertIn("no usage reader for codex", r.stderr)
+
+
+class AgentExecWiring(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        shutil.copy(os.path.join(ROOT, "bin", "agent-exec"), os.path.join(self.tmp, "agent-exec"))
+        os.symlink(os.path.join(ROOT, "bin", "agent-stage"), os.path.join(self.tmp, "agent-stage"))
+        self.log = os.path.join(self.tmp, "log")
+        self.fake = os.path.join(self.tmp, "quota")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def exec_(self, admit_exit):
+        with open(self.fake, "w") as f:
+            f.write(f'#!/usr/bin/env bash\necho "$*" >> {self.log}\n'
+                    f'[ "$1" = admit ] && {{ [ {admit_exit} = 0 ] && echo tok123; echo refused >&2; exit {admit_exit}; }}\n'
+                    'exit 0\n')
+        os.chmod(self.fake, 0o755)
+        env = {**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1", "STUDIO_AGENTS_APP_CONFIG": "/nonexistent",
+               "STUDIO_QUOTA": self.fake, "STUDIO_QUOTA_POLL": "0.1", "STUDIO_QUOTA_SETTLE": "0",
+               "PAPERCLIP_AGENT_ID": "agent-1"}
+        return subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
+                              capture_output=True, text=True, env=env, timeout=10)
+
+    def lines(self, want):
+        for _ in range(50):
+            if os.path.exists(self.log) and len(open(self.log).read().splitlines()) >= want:
+                break
+            time.sleep(0.1)
+        return open(self.log).read().splitlines()
+
+    def test_an_admitted_run_is_released_after_it_ends(self):
+        r = self.exec_(0)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("setpriv", r.stdout)
+        log = self.lines(2)
+        self.assertRegex(log[0], r"^admit --provider claude --agent agent-1 --pid \d+$")
+        self.assertRegex(log[1], r"^release --provider claude --after-pid \d+ tok123$")
+
+    def test_a_refused_run_does_not_start(self):
+        r = self.exec_(5)
+        self.assertEqual((r.returncode, r.stdout), (5, ""))
+        self.assertIn("refused", r.stderr)
+        time.sleep(0.3)
+        self.assertEqual(len(self.lines(1)), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
