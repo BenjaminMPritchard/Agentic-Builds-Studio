@@ -67,10 +67,22 @@ def score(only=None):
         print("enabled:", ", ".join(enabled) or "(none)")
 
 
+def hand_back(pc, task, issue, text):
+    """Return the task to whoever created it, as Paperclip recorded it (never a name from the job document)."""
+    if issue.get("createdByAgentId"):
+        pc.patch_issue(task, status="todo", assigneeAgentId=issue["createdByAgentId"], comment=text)
+    elif issue.get("createdByUserId"):
+        pc.patch_issue(task, status="todo", assigneeAgentId=None, assigneeUserId=issue["createdByUserId"], comment=text)
+    else:
+        pc.patch_issue(task, status="blocked", comment=text + "\n\nNo creator is recorded to hand this back to.")
+
+
 def paperclip_task():
+    task = os.environ.get("PAPERCLIP_TASK_ID")
+    if not task:
+        print("no task for this run; nothing to do")  # a timer or on-demand wake without an issue
+        return 0
     pc = Paperclip()
-    task = os.environ["PAPERCLIP_TASK_ID"]
-    ctx = pc.heartbeat_context(task)
     try:
         pc.checkout(task)
     except ApiError as e:
@@ -78,18 +90,22 @@ def paperclip_task():
             print("someone else has this task; stopping")  # never retry a 409
             return 0
         raise
-    doc = pc.get_document(task, "job")  # TODO(check): document response field names
+    issue = pc.get_issue(task)
+    doc = pc.get_document(task, "job")
     if not doc:
-        pc.patch_issue(task, status="blocked", comment="No `job` document on this task.")
+        hand_back(pc, task, issue, "Worker: this task has no `job` document, so there is nothing to run.")
         return 1
-    doc = json.loads(doc["body"]) if isinstance(doc.get("body"), str) else doc.get("body", doc)
+    try:
+        doc = json.loads(doc["body"]) if isinstance(doc.get("body"), str) else doc.get("body", doc)
+    except ValueError as e:
+        hand_back(pc, task, issue, f"Worker: the `job` document is not valid JSON ({e}).")
+        return 1
     res = run_job(doc, URL, MODEL, cache_dir=os.path.join(DATA, "qwen-cache"), enabled=enabled_jobs())
     pc.put_document(task, "result", json.dumps(res, indent=2))
     if res["status"] == "ok":
-        pc.patch_issue(task, status="done")
-    else:  # hand back to the requester with the errors
-        pc.patch_issue(task, status="todo", assigneeAgentId=doc.get("requester"),
-                       comment="Worker could not produce a checked result:\n- " + "\n- ".join(res.get("errors", [])))
+        pc.patch_issue(task, status="done", comment=f"Worker: `{res['job']}` passed its checks; see the `result` document.")
+    else:
+        hand_back(pc, task, issue, "Worker could not produce a checked result:\n- " + "\n- ".join(res.get("errors", [])))
     return 0
 
 

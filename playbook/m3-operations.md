@@ -80,3 +80,24 @@ left behind; this needs root because the agent's files inside are not paperclip'
 ```sh
 ls -d /tmp/paperclip-run-* && sudo rm -rf /tmp/paperclip-run-*
 ```
+
+## 4. Qwen hand-back — implemented (this branch), not yet activated
+
+The Worker (`bin/qwen-run`, local Qwen through Ollama, no cloud usage) has never run: its timer is off and it
+wakes only when given a task. Its Paperclip path had these gaps:
+
+| Gap | Fix |
+| --- | --- |
+| A failed job went back to the `requester` named inside the job document (anyone writing the document chose who got the task; none named meant unassigned) | handed back to the task's creator as Paperclip recorded it: `createdByAgentId`, else `createdByUserId`; with neither, the task is blocked with the reason |
+| A wake without a task crashed on `PAPERCLIP_TASK_ID` | exits cleanly |
+| A missing job document blocked the task; a malformed one crashed | both are handed back to the creator with the reason |
+| Success marked the task done silently | done with a comment pointing at the `result` document |
+
+Not changed, and still a judgement for later: 8 of 13 jobs are enabled on 3 golden cases each
+(`qwen/enabled.json`). That is thin evidence of semantic quality; the routing table should decide which jobs
+the Director may send to the Worker, and larger golden sets should come first for anything risky.
+
+### Proving it live (after activation; needs Benjamin's go-ahead)
+One real Worker task created by the Board: for example `summarise-comment` on an existing comment. Expect
+checkout, a `result` document and `done`; then one deliberately disabled job (`mechanical-edit`) to see the
+hand-back to its creator. Local Qwen only; no Claude or Codex usage.
