@@ -14,8 +14,12 @@ class ClerkTests(unittest.TestCase):
         self.pc = Paperclip(self.fp.url, "k")
         self.pc.wake_agent = lambda a, fresh=True: self.woken.append((a, fresh)) or True
         self.fp.agents = [{"id": "a1", "name": "Builder-1"}, {"id": "dir", "name": "Director"}]
+        # never read the host's real usage-cap ledger
+        self._ledger = clerk_mod.QUOTA_LEDGER
+        clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "no-ledger.json")
 
     def tearDown(self):
+        clerk_mod.QUOTA_LEDGER = self._ledger
         self.fp.stop(); self.tmp.cleanup()
 
     def gh(self, args):
@@ -133,6 +137,18 @@ class ClerkTests(unittest.TestCase):
         self.assertEqual(self.statuses()["t"], "done")
         self.assertTrue(any(i == "w" for i, _ in self.fp.comments))
 
+    def test_one_unreadable_issue_does_not_hide_the_others(self):
+        self.fp.add(id="bad", title="Old org", status="backlog", identifier="AGE-6", description="GitHub: gone/r#14")
+        self.fp.add(id="t", title="Task", status="in_review")
+        self.link("t", "o/r", 9)
+        self.prs["o/r"] = [{"number": 9, "state": "MERGED", "mergedAt": "x", "headRefOid": "x", "statusCheckRollup": []}]
+        gh = self.gh
+        c = Clerk(self.pc, "co", self.tmp.name, director_id="dir", principal_id="prin",
+                  gh=lambda a: (_ for _ in ()).throw(RuntimeError("HTTP 404")) if "gone/r" in a else gh(a))
+        c.tick()
+        self.assertEqual(self.statuses()["t"], "done")
+        self.assertTrue(any(n.startswith("AGE-6: GitHub check failed: HTTP 404") for n in c.notes), c.notes)
+
     def test_a_failed_write_is_retried_next_tick(self):
         self.fp.add(id="t", title="Task", status="in_review")
         self.link("t", "o/r", 9)
@@ -187,7 +203,8 @@ class ClerkTests(unittest.TestCase):
 
     def test_one_failing_step_does_not_stop_the_tick(self):
         self.fp.add(id="t", title="T", status="in_progress", description="GitHub: o/r#5")
-        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: 1 / 0)
+        self.pc.get_document = lambda *a: 1 / 0  # the plan step fails as a whole
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [])
         c.tick()
         log = open(os.path.join(self.tmp.name, "log", "studio.jsonl")).read()
         self.assertIn("step_error", log); self.assertIn('"event": "digest"', log)
