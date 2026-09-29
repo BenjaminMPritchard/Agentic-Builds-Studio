@@ -60,6 +60,12 @@ class Handback(unittest.TestCase):
         self.assertEqual(json.loads(self.fp.docs[("t", "result")])["status"], "ok")
         self.assertEqual(self.last_patch()["status"], "done")
 
+    def test_a_job_whose_strings_came_back_with_real_line_breaks_still_runs(self):
+        # As Paperclip returned AGE-12's job document: the \n escapes had become line breaks.
+        self.fp.docs[("t", "job")] = '{"job": "classify-failure", "input": {"log": "F401 `os` imported but unused\nsecond line"}}'
+        self.run_worker([GOOD], createdByAgentId="director")
+        self.assertEqual(self.last_patch()["status"], "done")
+
     def test_a_failed_job_goes_back_to_the_agent_that_created_the_task(self):
         self.fp.docs[("t", "job")] = json.dumps(self.job)
         self.run_worker([BAD], createdByAgentId="director")
