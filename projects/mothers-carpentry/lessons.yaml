@@ -19,3 +19,23 @@
   evidence: "findings.md §3.2 item 8"
   metric: human_wait_hours
   seen_in: [4]
+- id: L5
+  lesson: Relaying messages between sessions is fragile; sessions can't message each other directly, and one phase refused a relayed "go" because an approval existed only as quoted text.
+  evidence: "findings.md §3.2 item 3 (#34)"
+  metric: relayed_approval_failures
+  seen_in: [3b]
+- id: L6
+  lesson: Set effort explicitly; the account's ultracode default let one phase use a whole 5-hour allowance.
+  evidence: "findings.md §3.2 item 5 (Phase 1)"
+  metric: allowance_burn_per_phase
+  seen_in: [1]
+- id: L7
+  lesson: Research a third-party API before writing code against it; the Parcel2Go sandbox research changed the delivery design before Phase 3b started.
+  evidence: "findings.md §3.2 item 7 (3a)"
+  metric: design_changes_after_research
+  seen_in: [3a]
+- id: L8
+  lesson: A shared desktop and database is a hard limit, not a tuning problem — one `make e2e` run at a time (fixed ports, `_e2e` DB dropped with FORCE), one pytest test database per worktree, and two building sessions can empty a 5-hour allowance window in about 3 hours.
+  evidence: "findings.md §3.3"
+  metric: e2e_lock_contention
+  seen_in: [all]
