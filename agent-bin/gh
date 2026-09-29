@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# gh for confined agent runs (agent-exec puts this directory first on PATH): each call gets a current App
+# token from bin/agent-gh-token, which renews it during runs longer than an hour.
+set -euo pipefail
+HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+REAL="${STUDIO_REAL_GH:-/usr/bin/gh}"
+[ -n "${STUDIO_AGENT_GITHUB_GRANT:-}" ] || exec "$REAL" "$@"
+T="$("$HERE/../bin/agent-gh-token")" || { echo "gh: no GitHub token for this run; comment on the task and ask" >&2; exit 4; }
+GH_TOKEN="$T" exec "$REAL" "$@"

@@ -11,26 +11,32 @@
 # GitHub: when the agents' App is configured (/etc/studio/agents-app.json, readable by paperclip only),
 # the run gets that App's one-hour token for its account instead of any inherited personal token, so
 # agents act on GitHub as the App, which cannot merge. If the token cannot be made, the run does not start.
+# The run also gets a grant (lib/agent_grant.py) naming its account for 8 hours: agent-bin/gh and
+# bin/agent-git-credential renew the token through it, so `gh` and `git push` work in runs over an hour.
+# sudo replaces PATH with secure_path, so PATH is passed on the sudo command line (the rule allows SETENV).
 set -euo pipefail
 AGENT_USER="${STUDIO_AGENT_USER:-studio-agent}"
 CLI="${STUDIO_AGENT_CLI:-/home/studio-agent/.local/bin/claude}"
 APP_CONFIG="${STUDIO_AGENTS_APP_CONFIG:-/etc/studio/agents-app.json}"
 OWNER="${STUDIO_AGENT_GITHUB_OWNER:-Agentic-Builds-Studio-Client-Pages}"
 HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+SETENV=()
 case " $* " in *" --settings "*) ;; *) echo "agent-exec: refusing to run without --settings (Guard would not load)" >&2; exit 2 ;; esac
 if [ -e "$APP_CONFIG" ]; then
   TOKEN="$("$HERE/agent-github-token" "$OWNER")" || { echo "agent-exec: no GitHub App token for $OWNER; not starting" >&2; exit 3; }
+  GRANT="$("$HERE/agent-github-token" --new-grant "$OWNER")" || { echo "agent-exec: no GitHub grant for $OWNER; not starting" >&2; exit 3; }
   unset GITHUB_TOKEN
-  export GH_TOKEN="$TOKEN"
-  GH="$(command -v gh || echo /usr/bin/gh)"
+  export GH_TOKEN="$TOKEN" STUDIO_AGENT_TOKEN_ISSUED_AT="$(date +%s)" STUDIO_AGENT_GITHUB_GRANT="$GRANT"
   export GIT_CONFIG_COUNT=2
   export GIT_CONFIG_KEY_0="credential.https://github.com.helper" GIT_CONFIG_VALUE_0=""
-  export GIT_CONFIG_KEY_1="credential.https://github.com.helper" GIT_CONFIG_VALUE_1="!$GH auth git-credential"
+  export GIT_CONFIG_KEY_1="credential.https://github.com.helper" GIT_CONFIG_VALUE_1="!$HERE/agent-git-credential"
+  SETENV+=("PATH=$(realpath "$HERE/../agent-bin"):$PATH")
 fi
-CMD=(sudo -n -E -H -u "$AGENT_USER" -- /usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
+CMD=(sudo -n -E -H -u "$AGENT_USER" -- "${SETENV[@]}" /usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi
+  if [ -n "${STUDIO_AGENT_GITHUB_GRANT:-}" ]; then echo "GRANT=$STUDIO_AGENT_GITHUB_GRANT"; echo "CREDENTIAL=$GIT_CONFIG_VALUE_1"; fi
   exit 0
 fi
 exec "${CMD[@]}"

@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Print a GitHub App token for this agent run that is valid for at least 15 more minutes. Runs as studio-agent.
+
+agent-exec starts each run with a one-hour token (GH_TOKEN, issued at STUDIO_AGENT_TOKEN_ISSUED_AT) and a run
+grant (STUDIO_AGENT_GITHUB_GRANT). Once the token is 45 minutes old this asks paperclip for a fresh one through
+sudo, naming only the grant, and keeps it in a private cache for the rest of the run. Used by agent-bin/gh and
+bin/agent-git-credential, so `gh` and `git push` keep working in runs longer than an hour.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+FRESH_FOR = 45 * 60  # App tokens last 60 minutes
+RENEW = ["/usr/bin/sudo", "-n", "-u", "paperclip", "--", "/srv/studio/bin/agent-github-token", "--grant"]
+
+
+def cache_path(grant):
+    root = os.environ.get("STUDIO_AGENT_TOKEN_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "studio-agent-tokens")
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    return os.path.join(root, grant + ".json")
+
+
+def fresh(issued, now):
+    try:
+        return 0 <= now - float(issued) < FRESH_FOR
+    except (TypeError, ValueError):
+        return False
+
+
+def main(env=os.environ, now=time.time, run=subprocess.run):
+    grant = env.get("STUDIO_AGENT_GITHUB_GRANT", "")
+    if not grant.isalnum():
+        print("agent-gh-token: this run has no GitHub grant", file=sys.stderr)
+        return 1
+    t = now()
+    if env.get("GH_TOKEN") and fresh(env.get("STUDIO_AGENT_TOKEN_ISSUED_AT"), t):
+        print(env["GH_TOKEN"])
+        return 0
+    path = cache_path(grant)
+    try:
+        with open(path) as f:
+            c = json.load(f)
+        if c.get("token") and fresh(c.get("issued"), t):
+            print(c["token"])
+            return 0
+    except (OSError, ValueError, AttributeError):
+        pass
+    renew = [env["STUDIO_AGENT_TOKEN_RENEW"]] if env.get("STUDIO_AGENT_TOKEN_RENEW") else RENEW
+    r = run([*renew, grant], capture_output=True, text=True, timeout=60)
+    token = r.stdout.strip()
+    if r.returncode or not token:
+        print(f"agent-gh-token: could not renew the GitHub token: {r.stderr.strip()[:200]}", file=sys.stderr)
+        return 1
+    tmp = f"{path}.{os.getpid()}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"token": token, "issued": t}, f)
+    os.replace(tmp, path)
+    print(token)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

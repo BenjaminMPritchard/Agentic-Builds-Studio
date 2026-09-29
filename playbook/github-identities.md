@@ -65,7 +65,30 @@ Before dropping to `studio-agent`, `agent-exec` (running as `paperclip`) asks `b
 for a one-hour token for the run's account and passes it as `GH_TOKEN`, replacing any inherited token;
 git uses it through `gh`. The account is the agent's `STUDIO_AGENT_GITHUB_OWNER` setting
 (default: the client organisation). If the App is configured and no token can be made, the run does not
-start. Tokens last one hour; longer runs lose GitHub access and must be re-woken.
+start.
+
+Tokens last one hour, and the Architect's runs can be longer, with its pull request at the end. So each run
+also gets a **grant**: a random ID that `agent-exec` records, as `paperclip`, in `/srv/studio/data/agent-grants`
+(readable by `paperclip` only), naming the run's account and expiring after 8 hours. In the run, `gh` is
+`agent-bin/gh` and git's credential helper is `bin/agent-git-credential`; both ask `bin/agent-gh-token` for a
+token, which uses the starting token for 45 minutes and then renews through
+`sudo -u paperclip /srv/studio/bin/agent-github-token --grant ID`, the only form the sudo rule allows. The grant,
+not the agent, decides the account; the agent never sees the key; renewed tokens still cannot merge; nothing
+renews after the grant expires. All agents share the `studio-agent` user, so one run could read another
+concurrent run's environment, including its grant and token. Every token has the same App permissions, so
+this changes which account's repositories a run could reach, not what it could do there. Separate users per
+role would close it.
+
+Activation (Benjamin), after the runtime is on the commit that adds this:
+```bash
+sudo install -o root -g root -m 0440 /srv/studio/company/deploy/studio-agent/sudoers /etc/sudoers.d/studio-agent
+sudo visudo -cf /etc/sudoers.d/studio-agent
+sudo -u studio-agent sudo -n -l | grep agent-github-token     # the new rule, and nothing broader
+# PATH passed on the sudo command line survives secure_path (agent-exec relies on this for the gh wrapper):
+sudo PATH=/srv/studio/company/agent-bin:/usr/bin /usr/bin/printenv PATH    # expect the agent-bin path first
+sudo -u paperclip sudo -n -u studio-agent -- PATH=/srv/studio/company/agent-bin:/usr/bin \
+  /usr/bin/setpriv --pdeathsig KILL -- /home/studio-agent/.local/bin/claude --version   # the rule accepts it
+```
 
 ### 4. Install the keys on the host (Benjamin) — only after every Claude agent is confined
 Status 2026-09-29: done. All three files are root:paperclip 0640. As `paperclip`, each App issued a
