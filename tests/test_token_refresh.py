@@ -251,8 +251,11 @@ class AgentExecWiring(Tmp):
         self.assertEqual(r.returncode, 0, r.stderr)
         agent_bin = os.path.realpath(os.path.join(self.tmp, "..", "agent-bin"))
         self.assertTrue(r.stdout.startswith(
-            f"sudo -n -E -H -u studio-agent -- PATH={agent_bin}:/usr/bin:/bin /usr/bin/setpriv --pdeathsig KILL -- "),
+            f"sudo -n -E -H -u studio-agent PATH={agent_bin}:/usr/bin:/bin /usr/bin/setpriv --pdeathsig KILL -- "),
             r.stdout)
+        # sudo reads VAR=value only before `--`; after it, PATH=... is the command and no rule matches.
+        sudo_args = r.stdout.split()[:r.stdout.split().index("/usr/bin/setpriv")]
+        self.assertNotIn("--", sudo_args)
         self.assertIn(f"GRANT={GRANT}\n", r.stdout)
         self.assertIn(f"CREDENTIAL=!{os.path.realpath(self.tmp)}/agent-git-credential\n", r.stdout)
 

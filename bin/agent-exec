@@ -32,7 +32,10 @@ if [ -e "$APP_CONFIG" ]; then
   export GIT_CONFIG_KEY_1="credential.https://github.com.helper" GIT_CONFIG_VALUE_1="!$HERE/agent-git-credential"
   SETENV+=("PATH=$(realpath "$HERE/../agent-bin"):$PATH")
 fi
-CMD=(sudo -n -E -H -u "$AGENT_USER" -- "${SETENV[@]}" /usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
+# sudo reads VAR=value only before `--`; after it, `PATH=...` would be taken as the command and match no rule.
+CMD=(sudo -n -E -H -u "$AGENT_USER")
+if [ ${#SETENV[@]} -gt 0 ]; then CMD+=("${SETENV[@]}"); else CMD+=(--); fi
+CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "$@")
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi

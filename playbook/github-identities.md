@@ -86,7 +86,7 @@ sudo visudo -cf /etc/sudoers.d/studio-agent
 sudo -u studio-agent sudo -n -l | grep agent-github-token     # the new rule, and nothing broader
 # PATH passed on the sudo command line survives secure_path (agent-exec relies on this for the gh wrapper):
 sudo PATH=/srv/studio/company/agent-bin:/usr/bin /usr/bin/printenv PATH    # expect the agent-bin path first
-sudo -u paperclip sudo -n -u studio-agent -- PATH=/srv/studio/company/agent-bin:/usr/bin \
+sudo -u paperclip sudo -n -u studio-agent PATH=/srv/studio/company/agent-bin:/usr/bin \
   /usr/bin/setpriv --pdeathsig KILL -- /home/studio-agent/.local/bin/claude --version   # the rule accepts it
 ```
 
