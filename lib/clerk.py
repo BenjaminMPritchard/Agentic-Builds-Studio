@@ -36,7 +36,7 @@ def gh_env(repo, config=APP_CONFIG, mint=github_app.account_installation_token, 
         with open(config) as f:
             cfg = json.load(f)
         token = mint(owner, cfg["app_id"], cfg["key_path"])
-        _tokens[owner] = (token, now() + 60 * 60)
+        _tokens[owner] = (token, now() + 50 * 60)
     env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
     return {**env, "GH_TOKEN": token}
 
