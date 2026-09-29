@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Print the agent CLI's arguments, NUL-separated, with Paperclip-provided files staged where studio-agent can
+read them (lib/agent_stage.py). Run by agent-exec as paperclip. Exit 1 with a message if staging fails."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import agent_stage  # noqa: E402
+
+
+def main(argv):
+    parent = os.environ.get("STUDIO_AGENT_STAGE_DIR", agent_stage.STAGE_DIR)
+    group = os.environ.get("STUDIO_AGENT_GROUP", "studio")
+    try:
+        args = agent_stage.stage(argv[1:], parent=parent, group=group or None)
+    except (OSError, agent_stage.StageError) as e:
+        print(f"agent-stage: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    sys.stdout.write("".join(a + "\0" for a in args))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

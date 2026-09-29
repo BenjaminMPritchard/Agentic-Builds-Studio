@@ -36,6 +36,7 @@ class AgentExecToken(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         shutil.copy(os.path.join(ROOT, "bin", "agent-exec"), os.path.join(self.tmp, "agent-exec"))
+        os.symlink(os.path.join(ROOT, "bin", "agent-stage"), os.path.join(self.tmp, "agent-stage"))
         self.config = os.path.join(self.tmp, "agents-app.json")
 
     def tearDown(self):
