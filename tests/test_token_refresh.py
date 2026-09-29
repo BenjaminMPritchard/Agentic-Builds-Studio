@@ -215,6 +215,14 @@ class Wrappers(Tmp):
         r = self.run_([os.path.join(ROOT, "agent-bin", "gh"), "auth", "status"], env)
         self.assertEqual(r.stdout.strip(), "token=ghs_initial args=auth status")
 
+    def test_an_explicit_site_read_token_is_used_as_given(self):
+        env = {**self.env, "GH_TOKEN_SITE_READ": "github_pat_read", "GH_TOKEN": "github_pat_read"}
+        r = self.run_([os.path.join(ROOT, "agent-bin", "gh"), "api", "repos/o/site"], env)
+        self.assertEqual(r.stdout.strip(), "token=github_pat_read args=api repos/o/site")
+        env["GH_TOKEN"] = "something-else"  # any other token is still replaced by the App token
+        r = self.run_([os.path.join(ROOT, "agent-bin", "gh"), "pr", "list"], env)
+        self.assertEqual(r.stdout.strip(), "token=ghs_renewed args=pr list")
+
     def test_gh_stops_when_no_token_can_be_had(self):
         env = {**self.env, "STUDIO_AGENT_TOKEN_RENEW": script(os.path.join(self.tmp, "no"), "exit 1")}
         r = self.run_([os.path.join(ROOT, "agent-bin", "gh"), "pr", "list"], env)
