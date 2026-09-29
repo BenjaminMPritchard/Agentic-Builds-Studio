@@ -100,6 +100,24 @@ agent's configured `cwd`. The "Studio infrastructure" project's folder is the ru
 no project, so runs use the agent's own folder under `/srv/studio/work`. AGE-9 was taken out of the project
 (clearing `projectWorkspaceId` too; `projectId: null` alone is ignored).
 
+Fourth attempt (run `73de5fc3`) succeeded as `studio-agent`, but the Recorder cloned the studio repo from
+`/srv/studio/company-tmp` (its instructions said "a clone of studio-company"), so it had no GitHub remote,
+could not push, and posted its diff as an AGE-9 comment instead. Fix: `agent-bin/studio-checkout OWNER/REPO`
+(on the run's `PATH`) clones or refreshes `https://github.com/OWNER/REPO` in the agent's folder, refuses a
+folder whose origin is anything else (a local path, a URL with a token in it), and never discards local work;
+`--read` uses `GH_TOKEN_SITE_READ` for client site repositories. The Recorder's and Architect's instructions
+now say to use it, and Guard refuses `git clone` from `/srv/studio/company*`.
+
+Clean-up after activation (Benjamin; the Recorder's old clones, owned by `studio-agent`): the Mothers clone's
+remote URL holds an old personal token (it must be revoked on GitHub), and both clones predate the fix.
+Remove the token from the URL, then move both aside rather than delete them:
+```sh
+cd /srv/studio/work/recorder
+sudo -u studio-agent git -C mothers remote set-url origin https://github.com/Agentic-Builds-Studio-Client-Pages/Mothers-Carpentry-Webpage.git
+sudo -u studio-agent mkdir -p old-2026-09-29 && sudo -u studio-agent mv mothers studio-company old-2026-09-29/
+sudo -u studio-agent grep -rl github_pat_ /srv/studio/work --include=config || echo "no tokens in work clones"
+```
+
 ### 5. Paperclip authenticated mode (host; you; after 4)
 - `/etc/paperclip.env`: `PAPERCLIP_DEPLOYMENT_MODE=authenticated`, a new `BETTER_AUTH_SECRET`,
   `PAPERCLIP_PUBLIC_URL=http://127.0.0.1:3100`; keep loopback binding.

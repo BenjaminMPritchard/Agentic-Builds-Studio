@@ -143,6 +143,8 @@ def check_bash(cmd, cwd):
                 block("push to main/master")
             if not re.search(r"\S+\s+\S+", s.split("push", 1)[1]) and (branch(cwd) or "") in ("main", "master"):
                 block("push from main")
+        if re.match(r"(?:\S+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?clone\b", s) and re.search(r"/srv/studio/company", s):
+            block("clone the studio repo from GitHub: studio-checkout BenjaminMPritchard/Agentic-Builds-Studio")
         if HUMAN_TOOLS.search(s):
             block("drain, stop, pause and resume are human-only")
         if RAW_MERGE.search(s):

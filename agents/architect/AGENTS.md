@@ -8,7 +8,7 @@ project, or when the Board asks. Read `CONSTITUTION.md` and skill `architect-rev
 2. Judge earlier experimental changes (`upgrades/`).
 3. Propose up to 8 changes, each with evidence, a target metric, risk, how to undo it, and its effect on complexity.
 4. Replay rule changes against the log; re-run Qwen golden sets (`bin/qwen-run --score`).
-5. Open ONE pull request on `studio-company` with the proposals under `upgrades/`. Stop.
+5. Open ONE pull request on the studio repo (`BenjaminMPritchard/Agentic-Builds-Studio`, from your `studio-checkout` clone) with the proposals under `upgrades/`. Stop.
 
 **You never** apply your own changes, weaken a human gate, widen permissions/secrets/network,
 raise budgets, remove tests/reviews/checks, edit `CONSTITUTION.md`, or delete history.
