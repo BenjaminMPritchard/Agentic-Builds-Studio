@@ -14,6 +14,7 @@
 # agents act on GitHub as the App, which cannot merge. If the token cannot be made, the run does not start.
 # The run also gets a grant (lib/agent_grant.py) naming its account for 8 hours: agent-bin/gh and
 # bin/agent-git-credential renew the token through it, so `gh` and `git push` work in runs over an hour.
+# Usage caps: see the studio-quota step below; a run that would break a cap does not start (exit 5, or 6 with no reading).
 # sudo replaces PATH with secure_path, so PATH is passed on the sudo command line (the rule allows SETENV).
 set -euo pipefail
 AGENT_USER="${STUDIO_AGENT_USER:-studio-agent}"
@@ -42,6 +43,15 @@ mapfile -d '' -t ARGS < "$STAGED"; rm -f "$STAGED"
 CMD=(sudo -n -E -H -u "$AGENT_USER")
 if [ ${#SETENV[@]} -gt 0 ]; then CMD+=("${SETENV[@]}"); else CMD+=(--); fi
 CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
+# Usage caps (bin/studio-quota, policy/quota.json): reserve this run's estimated cost or do not start. A detached
+# watcher releases the reservation once this process (which becomes sudo, then waits for the CLI) is gone.
+# If the watcher is killed too, the next admission
+# finds the process gone and ends the run then.
+QUOTA="${STUDIO_QUOTA:-$HERE/studio-quota}"
+if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; then
+  QTOKEN="$("$QUOTA" admit --provider claude --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$)" || exit $?
+  setsid "$QUOTA" release --provider claude --after-pid $$ "$QTOKEN" </dev/null >/dev/null 2>&1 &
+fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi

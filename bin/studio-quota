@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Usage caps for agent runs (lib/quota.py). Called by agent-exec as paperclip, never by agents.
+
+  studio-quota admit   --provider claude --agent ID --pid PID   # prints a run token; exit 5 refused, 6 no reading
+  studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited, then settles
+  studio-quota status  --provider claude                        # JSON
+
+The reading is `claude -p /usage` (no model call) with paperclip's own claude.ai sign-in: the run's token and
+any API key are removed, so the reading is always the subscription meter, never API usage. Codex has no reader yet, so Codex runs are refused until one is added.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import quota  # noqa: E402
+
+ROOT = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
+POLICY = os.environ.get("STUDIO_QUOTA_POLICY", os.path.join(ROOT, "policy", "quota.json"))
+LEDGER_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
+
+
+def read_claude():
+    cli = os.environ.get("STUDIO_QUOTA_CLAUDE_CLI", "claude")
+    try:
+        r = subprocess.run([cli, "-p", "/usage", "--tools", ""], capture_output=True, text=True, timeout=90,
+                           cwd=LEDGER_DIR, stdin=subprocess.DEVNULL,
+                           env={k: v for k, v in os.environ.items() if k not in DROP_ENV})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise quota.QuotaError(f"could not run {cli} /usage: {e}")
+    if r.returncode != 0:
+        raise quota.QuotaError(f"{cli} /usage exited {r.returncode}: {(r.stderr or r.stdout).strip()[:200]}")
+    return quota.parse_usage(r.stdout)
+
+
+DROP_ENV = {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"}
+READERS = {"claude": read_claude}
+
+
+def reading(provider):
+    if provider not in READERS:
+        raise quota.QuotaError(f"no usage reader for {provider}")
+    return READERS[provider]()
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(prog="studio-quota")
+    ap.add_argument("action", choices=["admit", "release", "status"])
+    ap.add_argument("token", nargs="?")
+    ap.add_argument("--provider", required=True, choices=["claude", "codex"])
+    ap.add_argument("--agent")
+    ap.add_argument("--pid", type=int)
+    ap.add_argument("--after-pid", type=int)
+    a = ap.parse_args(argv[1:])
+    if a.action == "release" and a.after_pid:
+        # /proc, not kill(0): the run's process becomes root's sudo, which paperclip may not signal.
+        while os.path.exists(f"/proc/{a.after_pid}"):
+            time.sleep(float(os.environ.get("STUDIO_QUOTA_POLL", 5)))
+        time.sleep(float(os.environ.get("STUDIO_QUOTA_SETTLE", 10)))  # late usage reports land in this run
+    os.makedirs(LEDGER_DIR, mode=0o700, exist_ok=True)
+    policy = quota.load_policy(POLICY, a.provider)
+    path = os.path.join(LEDGER_DIR, a.provider + ".json")
+    with quota.Ledger(path) as ledger:
+        if a.action == "release":
+            if not a.token:
+                ap.error("release needs a token")
+            try:
+                r = reading(a.provider)
+            except quota.QuotaError as e:
+                print(f"studio-quota: {e}; run stays counted until the next reading", file=sys.stderr)
+                r = None
+            quota.release(ledger, a.token, r, quota.now())
+            return 0
+        try:
+            r = reading(a.provider)
+        except quota.QuotaError as e:
+            print(f"studio-quota: no {a.provider} usage reading ({e}); not starting", file=sys.stderr)
+            return 6
+        if a.action == "status":
+            quota.observe(ledger, r, quota.now())
+            print(json.dumps(quota.status(ledger, r, policy)))
+            return 0
+        if not a.agent or not a.pid:
+            ap.error("admit needs --agent and --pid")
+        token, reasons = quota.admit(ledger, r, a.agent, a.pid, policy, quota.now())
+    if token is None:
+        print(f"studio-quota: {a.provider} cap reached; not starting: " + "; ".join(reasons), file=sys.stderr)
+        return 5
+    print(token)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
