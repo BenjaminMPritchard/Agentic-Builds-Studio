@@ -1,5 +1,9 @@
 {
   "version": 1,
   "company_id": "bcf0f336-0c20-4194-9e21-fac517979ba0",
-  "projects": {}
+  "projects": {},
+  "github_app": {
+    "app_id": 5109343,
+    "key_path": "/etc/studio/merge-gate-app.pem"
+  }
 }
