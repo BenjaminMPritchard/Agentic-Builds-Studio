@@ -58,6 +58,28 @@ def _readable_tree(root):
             os.chmod(os.path.join(d, f), 0o640)
 
 
+def share_scratch(path, group, tmp_root=None):
+    """Let the agent group use Paperclip's per-run scratch folder (TMPDIR, TEMP, TMP), which Paperclip creates
+    as mode 0700 under /tmp and removes after the run. Only that folder: it must be a real directory directly
+    under the temp root, named paperclip-run-*, and owned by the running user."""
+    if not path:
+        return
+    root = os.path.realpath(tmp_root or tempfile.gettempdir())
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        raise StageError(f"run scratch folder {path} does not exist") from None
+    if (os.path.dirname(os.path.abspath(path)) != root or not os.path.basename(path).startswith("paperclip-run-")
+            or not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid()):
+        raise StageError(f"{path} is not this run's Paperclip scratch folder")
+    try:
+        gid = grp.getgrnam(group).gr_gid
+    except KeyError:
+        raise StageError(f"group {group} does not exist") from None
+    os.chown(path, -1, gid)
+    os.chmod(path, 0o2770)
+
+
 def stage(args, parent=STAGE_DIR, group=None, now=time.time):
     """Return args with the Paperclip-provided file and folder paths replaced by copies the agent can read.
     `group` (a name) is the agent user's group, which gets read access; None leaves the group alone."""

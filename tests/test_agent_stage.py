@@ -125,6 +125,44 @@ class Stage(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.dirname(new[new.index("--add-dir") + 1])))
 
 
+class Scratch(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()  # stands in for /tmp
+        self.dir = os.path.join(self.root, "paperclip-run-age-9-24d40d41-abc")
+        os.mkdir(self.dir, 0o700)
+        other = [g for g in os.getgroups() if g != os.getegid()]
+        self.gid = other[0] if other else os.getegid()
+        self.group = grp.getgrgid(self.gid).gr_name
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def test_the_agent_group_can_use_this_runs_scratch_folder(self):
+        agent_stage.share_scratch(self.dir, self.group, tmp_root=self.root)
+        st = os.stat(self.dir)
+        self.assertEqual((stat.S_IMODE(st.st_mode), st.st_gid), (0o2770, self.gid))
+
+    def test_nothing_to_do_without_a_scratch_folder(self):
+        agent_stage.share_scratch(None, self.group, tmp_root=self.root)
+        agent_stage.share_scratch("", self.group, tmp_root=self.root)
+
+    def test_only_paperclips_own_scratch_folder_is_touched(self):
+        nested = os.path.join(self.dir, "paperclip-run-nested")
+        os.mkdir(nested, 0o700)
+        wrong_name = os.path.join(self.root, "other-folder")
+        os.mkdir(wrong_name, 0o700)
+        link = os.path.join(self.root, "paperclip-run-link")
+        os.symlink(wrong_name, link)
+        for bad in (nested, wrong_name, link, os.path.join(self.root, "paperclip-run-missing")):
+            with self.assertRaises(StageError, msg=bad):
+                agent_stage.share_scratch(bad, self.group, tmp_root=self.root)
+        self.assertEqual(stat.S_IMODE(os.stat(wrong_name).st_mode), 0o700)
+        with mock.patch.object(agent_stage.os, "geteuid", return_value=os.geteuid() + 1):
+            with self.assertRaises(StageError):
+                agent_stage.share_scratch(self.dir, self.group, tmp_root=self.root)
+        self.assertEqual(stat.S_IMODE(os.stat(self.dir).st_mode), 0o700)
+
+
 class AgentExecStaging(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -150,6 +188,20 @@ class AgentExecStaging(unittest.TestCase):
         self.assertNotIn(self.instructions + " ", r.stdout)
         self.assertIn(f"--append-system-prompt-file {os.path.join(self.tmp, 'runs')}/run-", r.stdout)
         self.assertIn(" --settings /srv/studio/claude/liaison.json", r.stdout)
+
+    def test_the_runs_scratch_folder_is_shared_and_a_wrong_one_stops_the_run(self):
+        scratch = tempfile.mkdtemp(prefix="paperclip-run-test-")  # directly under the real temp root
+        try:
+            os.chmod(scratch, 0o700)
+            with mock.patch.dict(os.environ, {"PAPERCLIP_RUN_SCRATCH_DIR": scratch}):
+                r = self.exec_(self.instructions)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(stat.S_IMODE(os.stat(scratch).st_mode), 0o2770)
+        finally:
+            shutil.rmtree(scratch)
+        with mock.patch.dict(os.environ, {"PAPERCLIP_RUN_SCRATCH_DIR": self.tmp}):
+            r = self.exec_(self.instructions)
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
 
     def test_if_staging_fails_the_run_does_not_start(self):
         r = self.exec_(os.path.join(self.tmp, "missing.md"))
