@@ -113,6 +113,12 @@ class Paperclip:
     def put_document(self, issue_id, key, body):
         return self.call("PUT", f"/api/issues/{issue_id}/documents/{key}", {"format": "markdown", "body": body})
 
+    def work_products(self, issue_id):
+        return self.call("GET", f"/api/issues/{issue_id}/work-products")
+
+    def update_work_product(self, product_id, **fields):
+        return self.call("PATCH", f"/api/work-products/{product_id}", fields)
+
     def comment(self, issue_id, text):
         return self.call("POST", f"/api/issues/{issue_id}/comments", {"body": text})
 

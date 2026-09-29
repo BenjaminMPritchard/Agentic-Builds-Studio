@@ -12,12 +12,14 @@ import re
 import subprocess
 import time
 
-from lib import deploy, github_app, pacer
+from lib import deploy, github_app, merge_gate, quota
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
 RED_LIMIT = 3
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
+RECEIPT_DAYS = 60
+QUOTA_LEDGER = os.path.join(os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota"), "claude.json")
 
 
 APP_CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
@@ -56,7 +58,8 @@ class Clerk:
         self.director, self.principal, self.recorder, self.now = director_id, principal_id, recorder_id, now
         self.deploy_repo, self.infra_project = deploy_repo, infra_project_id
         self.state_path = os.path.join(data_dir, "clerk-state.json")
-        self.state = pacer.load(self.state_path)
+        self.state = _load(self.state_path)
+        self.dry_seen = set()  # dry-run receipts live only for this tick, so nothing is lost when dry-run ends
         self.needs_director, self.needs_board, self.notes = [], [], []
 
     # ---- plumbing -----------------------------------------------------------------
@@ -71,22 +74,41 @@ class Clerk:
         self.log("dry_run" if self.dry else "act", what=what)
         return None if self.dry else fn(*a, **kw)
 
+    def handled(self, key):
+        return key in self.state.get("done", {}) or key in self.dry_seen
+
+    def mark(self, key):
+        if self.dry:
+            self.dry_seen.add(key)
+        else:
+            self.state.setdefault("done", {})[key] = int(self.now())
+
     def seen(self, key):
-        """True if key was already handled; otherwise marks it (persisted by save())."""
-        done = self.state.setdefault("done", {})
-        if key in done:
+        """True if key was already handled; otherwise marks it. For notes only: actions use once()."""
+        if self.handled(key):
             return True
-        done[key] = int(self.now())
+        self.mark(key)
         return False
 
+    def once(self, key, what, fn, *a, **kw):
+        """Do a Paperclip write at most once. The receipt is kept only after the write succeeds, so a failed
+        write is retried next tick; in dry-run nothing is written and nothing is kept."""
+        if self.handled(key):
+            return False
+        self.act(what, fn, *a, **kw)
+        self.mark(key)
+        return True
+
     def save(self):
-        pacer.save(self.state_path, self.state)
+        cutoff = self.now() - RECEIPT_DAYS * 86400
+        self.state["done"] = {k: t for k, t in self.state.get("done", {}).items() if t >= cutoff}
+        _save(self.state_path, self.state)
 
     # ---- the tick -----------------------------------------------------------------
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.pace, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -116,51 +138,83 @@ class Clerk:
 
     # ---- 1+2+5: GitHub -> Paperclip, merges, red-check loop --------------------------
     def github_sync(self, issues, by_id):
+        """Follow the PRs an issue records as work products (agent-bin/studio-record-pr). A branch name is not
+        proof of linkage: a PR found only by name is reported to the Director, never acted on."""
         for i in issues:
-            m = GH_LINK.search(i.get("description") or "")
-            if not m or i.get("status") in ("done", "cancelled"):
+            if i.get("status") in ("done", "cancelled"):
                 continue
-            repo, num = m.groups()
-            # Paperclip names branches agent/<issue identifier>-<slug> (e.g. agent/AGE-3-pallet-cleanup).
-            seen_pr = set()
-            for prefix in dict.fromkeys(p for p in (i.get("identifier"), num) if p):  # builders sometimes use the GitHub number
-                prs = self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{prefix}-",
-                               "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
-                for pr in prs or []:
-                    if pr["number"] not in seen_pr:
-                        seen_pr.add(pr["number"])
-                        self.pr_state(i, pr)
+            products = self.pc.work_products(i["id"]) or []
+            linked = [(w, *merge_gate.PR_URL.match(w["url"]).groups()) for w in products
+                      if w.get("type") == "pull_request" and w.get("provider") == "github"
+                      and merge_gate.PR_URL.match(w.get("url") or "")]
+            if not linked:
+                self.unlinked(i)
+                continue
+            prs = []
+            for w, repo, num in linked:
+                pr = self.gh(["pr", "view", num, "--repo", repo,
+                              "--json", "number,state,mergedAt,headRefOid,statusCheckRollup,url"])
+                if pr:
+                    self.pr_state(i, pr, w)
+                    prs.append(pr)
+            self.merged_means_done(i, prs, issues)
 
-    def pr_state(self, issue, pr):
+    def unlinked(self, issue):
+        m = GH_LINK.search(issue.get("description") or "")
+        if not m:
+            return
+        repo, num = m.groups()
+        for prefix in dict.fromkeys(p for p in (issue.get("identifier"), num) if p):
+            for pr in self.gh(["pr", "list", "--repo", repo, "--state", "all", "--search", f"head:agent/{prefix}-",
+                               "--json", "number,url"]) or []:
+                if not self.seen(f"unlinked:{issue['id']}:{repo}#{pr['number']}"):
+                    self.needs_director.append(
+                        f"{issue['title']}: PR #{pr['number']} ({pr.get('url', repo)}) matches by branch name only. "
+                        f"If it belongs to this issue, record it: studio-record-pr {issue['id']} <PR URL>")
+
+    def pr_state(self, issue, pr, product):
         iid, n = issue["id"], pr["number"]
         checks = pr.get("statusCheckRollup") or []
         red = any((c.get("conclusion") or c.get("state")) in RED for c in checks)
         pending = any(not (c.get("conclusion") or c.get("state")) or (c.get("status") or "") in ("IN_PROGRESS", "QUEUED") for c in checks)
         label = "merged" if pr.get("mergedAt") else pr["state"].lower()
         label += " · checks red" if red else (" · checks running" if pending else " · checks green" if checks else "")
-        if not self.seen(f"pr:{iid}:{n}:{pr.get('headRefOid')}:{label}"):
-            self.act("comment", self.pc.comment, iid, f"[Clerk] PR #{n} is {label}. {pr.get('url', '')}")
-        if red and not self.seen(f"red:{iid}:{pr.get('headRefOid')}"):
-            self.state.setdefault("red", {})[iid] = self.state.get("red", {}).get(iid, 0) + 1
+        self.once(f"pr:{iid}:{n}:{pr.get('headRefOid')}:{label}", "comment", self.pc.comment, iid,
+                  f"[Clerk] PR #{n} is {label}. {pr.get('url', '')}")
+        status = "merged" if pr.get("mergedAt") else "closed" if pr["state"] == "CLOSED" else None
+        if status and product.get("status") != status:
+            self.once(f"product:{product['id']}:{status}", "work-product", self.pc.update_work_product,
+                      product["id"], status=status)
+        if red and not self.handled(f"red:{iid}:{pr.get('headRefOid')}"):
+            self.mark(f"red:{iid}:{pr.get('headRefOid')}")
             self.log("check_red", task=iid, pr=n)
-            if self.state["red"][iid] >= RED_LIMIT and not self.seen(f"escalate:{iid}") and self.principal:
-                self.act("escalate", self.pc.patch_issue, iid, assigneeAgentId=self.principal,
-                         comment=f"[Clerk] {RED_LIMIT} red check runs. Handing to the Principal.")
-                self.notes.append(f"{issue['title']}: 3 red checks, handed to the Principal")
-        if pr.get("mergedAt") and not self.seen(f"merged:{iid}"):
-            self.act("done", self.pc.patch_issue, iid, status="done")
-            self.log("merged", task=iid, pr=n)
-            for d in [x for x in self._all if iid in (x.get("blockedByIssueIds") or [])]:
-                self.act("bring-main-in", self.pc.comment, d["id"],
-                         f"[Clerk] '{issue['title']}' merged. Bring `main` into your branch before continuing.")
+            if not self.dry:
+                self.state.setdefault("red", {})[iid] = self.state.get("red", {}).get(iid, 0) + 1
+            if self.state.get("red", {}).get(iid, 0) >= RED_LIMIT and self.principal:
+                if self.once(f"escalate:{iid}", "escalate", self.pc.patch_issue, iid, assigneeAgentId=self.principal,
+                             comment=f"[Clerk] {RED_LIMIT} red check runs. Handing to the Principal."):
+                    self.notes.append(f"{issue['title']}: 3 red checks, handed to the Principal")
         elif pr["state"] == "OPEN" and not red and not pending and checks:
             if not self.seen(f"review-ready:{iid}:{pr.get('headRefOid')}"):
                 self.notes.append(f"{issue['title']}: PR #{n} green, waiting for review/merge")
                 self.needs_board.append(f"Merge PR #{n} ({issue['title']}) once reviewed")
 
-    @property
-    def _all(self):
-        return self.pc.list_issues(self.cid)
+    def merged_means_done(self, issue, prs, issues):
+        """Done only when every recorded PR is closed, at least one merged, and the assignee has already put the
+        issue in review. A merge on an issue still in progress goes to the Director instead."""
+        if not prs or any(p["state"] == "OPEN" for p in prs) or not any(p.get("mergedAt") for p in prs):
+            return
+        iid = issue["id"]
+        if issue.get("status") != "in_review":
+            if not self.seen(f"merged-not-in-review:{iid}"):
+                self.needs_director.append(f"{issue['title']}: its PR merged but the issue is {issue.get('status')}; "
+                                           "decide whether it is done")
+            return
+        if self.once(f"merged:{iid}", "done", self.pc.patch_issue, iid, status="done"):
+            self.log("merged", task=iid, prs=[p["number"] for p in prs])
+            for d in [x for x in issues if iid in (x.get("blockedByIssueIds") or [])]:
+                self.once(f"bring-main-in:{d['id']}:{iid}", "bring-main-in", self.pc.comment, d["id"],
+                          f"[Clerk] '{issue['title']}' merged. Bring `main` into your branch before continuing.")
 
     # ---- 3: approved B plan -> copy to GitHub, wake the builder ----------------------
     def plan_gate(self, issues, by_id):
@@ -183,59 +237,40 @@ class Clerk:
                     self.needs_board.append(f"Plan confirmation waiting: {i['title']}")
                 continue
             approval = approved[-1]
-            if self.seen(f"plan:{i['id']}:{revision}:{approval['id']}"):
-                continue
+            key = f"plan:{i['id']}:{revision}:{approval['id']}"
             m = GH_LINK.search(i.get("description") or "")
             if m:
                 body = plan.get("body", "") if isinstance(plan, dict) else str(plan)
-                self.act("plan->github", self.gh_comment, m.group(1), m.group(2), "Approved plan:\n\n" + body)
+                self.once(key + ":github", "plan->github", self.gh_comment, m.group(1), m.group(2),
+                          "Approved plan:\n\n" + body)
             if i.get("assigneeAgentId"):
-                self.act("wake", self.pc.wake_agent, i["assigneeAgentId"], fresh=False)
+                self.once(key + ":wake", "wake", self.pc.wake_agent, i["assigneeAgentId"], fresh=False)
 
     def gh_comment(self, repo, num, body):
         subprocess.run(["gh", "issue", "comment", num, "--repo", repo, "--body", body], check=True, timeout=60,
                        env=gh_env(repo))
 
-    # ---- 4: pacer ----------------------------------------------------------------------
-    def pace(self, issues, by_id):
-        """Pause every Claude agent while the real 5-hour or weekly allowance is nearly used; resume the
-        ones we paused (never ones a human paused) once it is not. A recent usage-limit failure also holds."""
-        agents = self.pc.list_agents(self.cid)
-        names = {a["id"]: a.get("name", "") for a in agents}
-        st, heavy = pacer.update(self.state, self.pc.runs(self.cid), names, self.now())
-        self.state = st
-        failure_ok, failure_why = pacer.heavy_allowed(st, heavy, self.now())
+    # ---- 4: usage caps (enforced by agent-exec; reported here) ---------------------------
+    def caps(self, issues, by_id):
+        """Report the usage-cap ledger kept by bin/studio-quota. Read-only: agent-exec refuses runs that would
+        break a cap, so the Clerk no longer pauses or resumes agents."""
         try:
-            win = pacer.parse_windows(self.pc.quota_windows(self.cid))
-        except Exception as e:
-            win = {}
-            self.log("quota_error", error=str(e)[:200])
-        decision = pacer.decide(win)
-        reasons = decision["reasons"] + ([] if failure_ok or not st.get("hold_until", 0) > self.now() else [failure_why])
-        hold = bool(reasons)
-        self.state["usage"] = pacer.describe(win)
-        self.state["heavy_allowed"] = not hold
-        self.state["heavy_reason"] = "; ".join(reasons) if hold else (failure_why if not failure_ok else "ok")
-        ours = set(self.state.get("paused_by_clerk", []))
-        claude = [a for a in agents if a.get("adapterType") == "claude_local"]
-        if hold:
-            for a in claude:
-                if a.get("status") != "paused":
-                    self.act("pause", self.pc.pause_agent, a["id"])
-                    if not self.dry:
-                        ours.add(a["id"])
-            self.notes.append("Pacer: Claude agents paused. " + self.state["heavy_reason"])
-            self.needs_board.append("Usage allowance nearly used; agents paused until it resets: " + self.state["heavy_reason"])
-        else:
-            still = {a["id"]: a for a in agents}
-            for aid in list(ours):
-                if still.get(aid, {}).get("status") == "paused":
-                    self.act("resume", self.pc.resume_agent, aid)
-                ours.discard(aid) if not self.dry else None
-            if heavy >= pacer.MAX_HEAVY:
-                self.notes.append(f"Pacer: {heavy} heavy runs active (max {pacer.MAX_HEAVY}); not enforced, only reported")
-        self.state["paused_by_clerk"] = sorted(ours)
-        self.log("pacer", hold=hold, usage=self.state["usage"], dry=self.dry)
+            with open(QUOTA_LEDGER) as f:
+                ledger = json.load(f)
+        except FileNotFoundError:
+            self.state["usage"] = "no usage-cap ledger yet (no agent run since caps were activated)"
+            return
+        last = ledger.get("last")
+        if not last:
+            self.state["usage"] = "usage-cap ledger has no reading yet"
+            return
+        s = quota.status(ledger, last, {"five_hour_cap": 12, "weekly_cap": 80})
+        age = int((self.now() - last["t"]) / 60)
+        self.state["usage"] = (f"Claude studio use {s['studio']['five_hour']:g} of {s['caps']['five_hour']} points this "
+                               f"5-hour window (resets {s['resets']['five_hour']}), {s['studio']['week']:g} of "
+                               f"{s['caps']['week']} this week; account {s['account']['five_hour']:g}% / "
+                               f"{s['account']['week']:g}%; {s['active_runs']} runs active; reading {age} min old")
+        self.log("caps", usage=self.state["usage"])
 
     # ---- 6: digest ----------------------------------------------------------------------
     def digest(self, issues, by_id):
@@ -247,7 +282,7 @@ class Clerk:
         for i in issues:
             counts[i.get("status", "?")] = counts.get(i.get("status", "?"), 0) + 1
         lines.append("## Work: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
-        lines.append(f"Usage: {self.state.get('usage', 'n/a')}. Pacer: {self.state.get('heavy_reason', 'n/a')}")
+        lines.append(f"Usage: {self.state.get('usage', 'n/a')}")
         text = "\n".join(lines)[:DIGEST_MAX_CHARS]
         # TODO(check): the "Director inbox" issue is found by title; the Worker's summaries of agent comments are not wired in yet.
         inbox = next((i for i in issues if i.get("title") == "Director inbox"), None)
@@ -259,7 +294,8 @@ class Clerk:
         wake = bool(self.needs_director or self.needs_board)
         h = hashlib.sha256((str(self.needs_director) + str(self.needs_board)).encode()).hexdigest()
         if wake and self.director and h != self.state.get("last_wake_hash"):
-            self.state["last_wake_hash"] = h
+            if not self.dry:
+                self.state["last_wake_hash"] = h
             self.act("wake-director", self.pc.wake_agent, self.director, fresh=True)
         self.log("digest", wake=wake, dry=self.dry)
 
@@ -273,3 +309,17 @@ class Clerk:
         json.dump(report, open(os.path.join(out, "cost-report.json"), "w"), indent=2)
         self.log("weekly", out=out)
         return out
+
+
+def _load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save(path, state):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(state, f)
