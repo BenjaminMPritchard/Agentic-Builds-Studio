@@ -55,6 +55,23 @@ class CodexExec(unittest.TestCase):
         self.assertEqual(os.stat(cfg).st_mode & 0o070, 0o060)
         self.assertEqual(os.stat(os.path.join(home, "skills")).st_mode & 0o070, 0o070)
 
+    def test_paperclips_mcp_headers_are_given_the_key_codex_reads(self):
+        home = os.path.join(self.tmp, "codex-home")
+        os.makedirs(home)
+        cfg = os.path.join(home, "config.toml")
+        with open(cfg, "w") as f:
+            f.write('model = "x"\nheaders = "not an mcp table"\n\n'
+                    '[mcp_servers."paperclip-projects"]\nurl = "http://127.0.0.1:3100/mcp"\n'
+                    'headers = { Authorization = "Bearer k" }\n[mcp_servers."paperclip-connections"]\n'
+                    'url = "http://127.0.0.1:3100/c"\nheaders = { Authorization = "Bearer j" }\n\n[other]\nheaders = 1\n')
+        self.env["STUDIO_CODEX_HOME"] = home
+        self.assertEqual(self.run_("exec", "-").returncode, 0)
+        text = open(cfg).read()
+        self.assertIn('http_headers = { Authorization = "Bearer k" }', text)
+        self.assertIn('http_headers = { Authorization = "Bearer j" }', text)  # the second MCP table too
+        self.assertIn('headers = "not an mcp table"', text)  # outside MCP tables: untouched
+        self.assertIn("[other]\nheaders = 1", text)
+
     def test_no_settings_file_is_needed_but_the_managed_limits_are(self):
         for line in ("allow_managed_hooks_only = true", 'command = "/srv/studio/bin/guard"', "multi_agent = false",
                      "multi_agent_v2 = false", 'allowed_sandbox_modes = ["read-only", "workspace-write"]'):
