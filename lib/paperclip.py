@@ -112,7 +112,15 @@ class Paperclip:
             raise
 
     def put_document(self, issue_id, key, body):
-        return self.call("PUT", f"/api/issues/{issue_id}/documents/{key}", {"format": "markdown", "body": body})
+        """Create or replace an issue document. Replacing one needs the revision it replaces (Paperclip refuses
+        an update without baseRevisionId), so the current one is read first."""
+        payload = {"format": "markdown", "body": body}
+        try:
+            payload["baseRevisionId"] = self.call("GET", f"/api/issues/{issue_id}/documents/{key}")["latestRevisionId"]
+        except ApiError as e:
+            if e.status != 404:
+                raise
+        return self.call("PUT", f"/api/issues/{issue_id}/documents/{key}", payload)
 
     def work_products(self, issue_id):
         return self.call("GET", f"/api/issues/{issue_id}/work-products")
