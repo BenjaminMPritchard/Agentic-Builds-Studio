@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +81,23 @@ class CodexExec(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(os.stat(cfg).st_mode & 0o070, 0o060)
         self.assertEqual(os.stat(os.path.join(home, "skills")).st_mode & 0o070, 0o070)
+
+    def test_a_config_codex_left_unreadable_is_removed_after_the_run(self):
+        # Codex rewrites config.toml as studio-agent, mode 0600; Paperclip could not open it for the next run.
+        home = os.path.join(self.tmp, "codex-home")
+        os.makedirs(home)
+        cfg = os.path.join(home, "config.toml")
+        open(cfg, "w").close()
+        os.chmod(cfg, 0)
+        self.env["STUDIO_CODEX_HOME"] = home
+        self.env.pop("STUDIO_AGENT_EXEC_DRY_RUN")  # the watcher runs only for a real start
+        self.env["STUDIO_AGENT_CLI"] = "/bin/true"
+        r = self.run_("exec", "-")
+        for _ in range(50):
+            if not os.path.exists(cfg):
+                break
+            time.sleep(0.1)
+        self.assertFalse(os.path.exists(cfg), r.stderr)
 
     def test_paperclips_mcp_headers_are_given_the_key_codex_reads(self):
         home = os.path.join(self.tmp, "codex-home")
