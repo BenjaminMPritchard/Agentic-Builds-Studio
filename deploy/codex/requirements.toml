@@ -14,7 +14,7 @@ multi_agent = false
 multi_agent_v2 = false
 
 [[hooks.PreToolUse]]
-matcher = "^(Bash|apply_patch|Edit|Write|mcp__.*)$"
+matcher = ".*"  # every tool: Guard also refuses sub-agent tools, which `multi_agent = false` does not remove
 
 [[hooks.PreToolUse.hooks]]
 type = "command"

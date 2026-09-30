@@ -13,7 +13,9 @@
     "dangerouslyBypassApprovalsAndSandbox": false,
     "fastMode": false,
     "search": false,
-    "extraArgs": [],
+    "extraArgs": [
+      "--skip-git-repo-check"
+    ],
     "timeoutSec": 2700,
     "graceSec": 15,
     "instructionsFilePath": "/srv/studio/company/agents/codex-scout/AGENTS.md",
