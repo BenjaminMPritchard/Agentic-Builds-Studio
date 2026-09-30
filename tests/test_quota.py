@@ -13,6 +13,7 @@ from lib.quota import QuotaError
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 with open(os.path.join(ROOT, "policy", "quota.json")) as _f:
     POLICY = json.load(_f)["claude"]
+POLICY = {**POLICY, "five_hour_cap": 12}  # the controller scenarios below are worked for a 12-point cap
 
 USAGE = """You are currently using your subscription to power your Claude Code usage
 
@@ -349,7 +350,7 @@ class Cli(unittest.TestCase):
     def test_codex_reading_and_its_own_cap(self):
         self.fake_codex(10, 37)
         s = json.loads(self.q("status", "--provider", "codex").stdout)
-        self.assertEqual((s["account"], s["caps"]), ({"five_hour": 10.0, "week": 37.0}, {"five_hour": 15, "week": 80}))
+        self.assertEqual((s["account"], s["caps"]), ({"five_hour": 10.0, "week": 37.0}, {"five_hour": 28, "week": 80}))
         r = self.q("admit", "--provider", "codex", "--agent", "cx", "--pid", str(os.getpid()))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.fake_codex(100, 37)  # the account's five-hour window is used up

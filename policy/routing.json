@@ -17,8 +17,8 @@
     "Director":     {"provider": "claude", "model": "claude-opus-5-5", "effort": "medium", "status": "active", "use": "plans, task packets, routing, acceptance, disputes; never implementation"}
   },
   "caps": {
-    "claude": {"five_hour": 12, "week": 80},
-    "codex": {"five_hour": 15, "week": 80},
+    "claude": {"five_hour": 22, "week": 80},
+    "codex": {"five_hour": 28, "week": 80},
     "_note": "Enforced by bin/studio-quota in agent-exec (policy/quota.json). Never add Claude and Codex percentages together; a route that saves Claude by spending spare Codex allowance raises throughput without being 'cheaper'."
   },
   "routes": [

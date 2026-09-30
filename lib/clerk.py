@@ -21,6 +21,7 @@ DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
 QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
 QUOTA_LEDGER = os.path.join(QUOTA_DIR, "claude.json")
+QUOTA_POLICY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policy", "quota.json")
 
 
 APP_CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
@@ -272,7 +273,7 @@ class Clerk:
         if not last:
             self.state["usage"] = "usage-cap ledger has no reading yet"
             return
-        s = quota.status(ledger, last, {"five_hour_cap": 12, "weekly_cap": 80})
+        s = quota.status(ledger, last, quota.load_policy(QUOTA_POLICY, "claude"))
         age = int((self.now() - last["t"]) / 60)
         self.state["usage"] = (f"Claude studio use {s['studio']['five_hour']:g} of {s['caps']['five_hour']} points this "
                                f"5-hour window (resets {s['resets']['five_hour']}), {s['studio']['week']:g} of "
