@@ -60,7 +60,7 @@ class Routing(unittest.TestCase):
         for field in self.r["rules"]["evidence_packet"]:
             self.assertTrue(f"`{field}`" in skill, f"evidence field {field} is not in the skill")
         planned = [n for n, a in self.agents.items() if a["status"] == "planned"]
-        for n in planned:
+        for n in planned:  # any agent still planned must be named as such in the skill
             self.assertTrue(n in skill[skill.index("**Only route to active agents.**"):], f"{n} is not listed as planned")
 
     def test_director_and_packets_point_at_the_table(self):

@@ -104,3 +104,5 @@ deleted is checked by the requester before anyone acts on it.
   block stands on the Guard tests and the `.*` hook matcher. **Why Codex had no Paperclip tools:** Paperclip
   writes its MCP gateways into `config.toml` with `headers = {...}`, which Codex 0.156 ignores (it reads
   `http_headers`), so the tools had no credentials. `agent-exec` now renames the key in `[mcp_servers.*]` tables.
+- Final check after #56: Codex-Scout commented on AGE-19 and handed it back to Benjamin with `studio-task`.
+  **Codex-Scout, Codex-Builder and Codex-Principal are active in the routing table from 2026-09-30.**
