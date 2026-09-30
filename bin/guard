@@ -93,7 +93,8 @@ def check_main_branch(cwd, what):
         cwd = os.path.dirname(cwd)
     b = branch(cwd)
     if b and re.fullmatch(MAIN, b):
-        block(f"{what} on '{b}'. Work on a branch agent/<issue>-<slug> in a worktree")
+        block(f"{what} on '{b}' (in {cwd}). Work on a branch agent/<issue>-<slug> in a worktree; if the command "
+              f"runs in one, name it: git -C <worktree> ... or cd <worktree> && git ...")
 
 
 HUMAN_TOOLS = re.compile(r"(^|/|\s)studio-stop(\s|$)|/agents/[\w-]+/(pause|resume)\b")

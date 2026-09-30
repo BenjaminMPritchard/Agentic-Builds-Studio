@@ -40,6 +40,10 @@ class StudioTask(unittest.TestCase):
             f.write("# Evidence\n")
         self.assertEqual(self.mod.main(["x", "doc", "t", "evidence", f.name]), 0)
         self.assertEqual(self.fp.docs[("t", "evidence")], "# Evidence\n")
+        with open(f.name, "w") as g:
+            g.write("# Evidence, later\n")
+        self.assertEqual(self.mod.main(["x", "doc", "t", "evidence", f.name]), 0)  # replacing needs the base revision
+        self.assertEqual(self.fp.docs[("t", "evidence")], "# Evidence, later\n")
         os.remove(f.name)
 
     def test_handback_goes_to_the_recorded_creator(self):

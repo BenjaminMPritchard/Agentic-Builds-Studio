@@ -203,6 +203,16 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.estimate(self.l, "rec", POLICY), POLICY["min_job"])
         self.assertEqual(quota.estimate(self.l, "other", POLICY), POLICY["default_job"])
 
+    def test_an_estimate_above_the_cap_is_held_to_what_an_empty_window_allows(self):
+        # 2026-09-30: one Principal run was charged 45 points (Benjamin's own use at the same time counted too);
+        # the estimate then exceeded the 12-point cap and the Principal could never start again.
+        self.l["samples"]["rec"] = [[45.0, 3.0], [2.0, 0.1], [1.0, 0.1]]
+        est = quota.estimate(self.l, "rec", POLICY)
+        self.assertEqual(est["five_hour"], POLICY["five_hour_cap"] - POLICY["margin"]["five_hour"])
+        self.assertEqual(est["week"], 3.0)
+        tok, why = self.admit(reading(0, 0))
+        self.assertIsNotNone(tok, why)  # an empty window admits it
+
     def test_a_run_whose_process_is_gone_is_not_charged_with_later_usage(self):
         # 2026-09-30: a Paperclip restart killed a run and its release watcher; hours of Benjamin's own use
         # were then charged to it at the next admission.

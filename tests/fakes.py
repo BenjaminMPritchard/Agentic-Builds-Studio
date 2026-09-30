@@ -74,7 +74,10 @@ class FakePaperclip(Server):
             def do_PUT(s):
                 m = re.fullmatch(r"/api/issues/(\w+)/documents/(\w+)", s.path); b = s.body()
                 if b.get("format") != "markdown" or "body" not in b: return s.send(400, {"error": "format+body required"})
-                key = (m[1], m[2]); fake.docs[key] = b["body"]
+                key = (m[1], m[2])
+                if key in fake.docs and b.get("baseRevisionId") != fake.doc_revisions.get(key, "revision-1"):
+                    return s.send(409, {"error": "baseRevisionId must be the latest revision"})  # as Paperclip does
+                fake.docs[key] = b["body"]
                 fake.doc_revisions[key] = f"revision-{len(fake.doc_revisions) + 1}"
                 s.send(200, {"latestRevisionId": fake.doc_revisions[key]})
 
