@@ -1,7 +1,7 @@
 {
   "_comment": "Studio usage caps: Benjamin's requirement (codex-claude-paperclip-model-routing-research.md sections 2-3). Percentage points of each provider's own windows. Changing a cap needs Benjamin's approval.",
   "claude": {
-    "five_hour_cap": 12,
+    "five_hour_cap": 22,
     "weekly_cap": 80,
     "personal_weekly": 20,
     "margin": {"five_hour": 1, "week": 0.5},
@@ -11,7 +11,7 @@
     "max_run_hours": 6
   },
   "codex": {
-    "five_hour_cap": 15,
+    "five_hour_cap": 28,
     "weekly_cap": 80,
     "personal_weekly": 20,
     "margin": {"five_hour": 1, "week": 0.5},

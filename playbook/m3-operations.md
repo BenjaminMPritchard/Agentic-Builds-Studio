@@ -5,8 +5,8 @@ workspace safety. Everything here is deterministic code; no step needs an agent 
 
 ## 1. Usage caps — implemented (this branch), not yet activated
 
-Benjamin's caps (research sections 2–3): studio use at most **12%** of each Claude five-hour window and
-**15%** of each Codex one, and at most **80%** of each weekly allowance; the other 20% of the week is his.
+Benjamin's caps (research sections 2–3): studio use at most **22%** of each Claude five-hour window and
+**28%** of each Codex one (raised from 12% and 15% by Benjamin on 2026-09-30), and at most **80%** of each weekly allowance; the other 20% of the week is his.
 `policy/quota.json` holds the numbers; changing them needs his approval.
 
 - **Where it is enforced:** `bin/agent-exec`, which every confined agent run passes through. Before the CLI

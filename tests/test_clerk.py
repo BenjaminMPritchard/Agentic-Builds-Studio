@@ -230,7 +230,7 @@ class ClerkTests(unittest.TestCase):
         try:
             clerk_mod.QUOTA_LEDGER = ledger
             c = self.clerk(now=lambda: 600); c.tick()
-            self.assertIn("Claude studio use 4.5 of 12 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
+            self.assertIn("Claude studio use 4.5 of 22 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
                           c.state["usage"])
             self.assertIn("reading 10 min old", c.state["usage"])
             clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "missing.json")

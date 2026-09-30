@@ -7,7 +7,7 @@ same moment is counted against the studio, never the other way round). Readings 
 and when it ends, so the set of active runs is constant between consecutive readings.
 
 Before a run starts, its estimated cost is reserved and every check must pass:
-  studio 5-hour used + reserved + this job + margin <= five_hour_cap   (12 Claude, 15 Codex)
+  studio 5-hour used + reserved + this job + margin <= five_hour_cap   (policy/quota.json: 22 Claude, 28 Codex)
   studio weekly used + reserved + this job + margin <= weekly_cap      (80)
   account 5-hour used + reserved + this job + margin <= 100
   account weekly used + reserved + this job + margin + personal allowance still unused <= 100
