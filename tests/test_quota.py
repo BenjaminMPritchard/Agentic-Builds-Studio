@@ -24,8 +24,11 @@ Last 24h · 724 requests · 3 sessions
 """
 
 
+NOW = 1790650000.0  # 2026-09-29 ~03:46 London: a fixed clock for reset-time parsing
+
+
 def reading(s, w, sk="Sep 29, 6:50am (Europe/London)", wk="Oct 5, 9am (Europe/London)", extra=""):
-    return quota.parse_usage(USAGE.format(s=s, w=w, sk=sk, wk=wk) + extra)
+    return quota.parse_usage(USAGE.format(s=s, w=w, sk=sk, wk=wk) + extra, now=NOW)
 
 
 def alive(pid):
@@ -35,9 +38,15 @@ def alive(pid):
 class Parse(unittest.TestCase):
     def test_real_output(self):
         r = reading(73, 22)
-        self.assertEqual(r["five_hour"], {"pct": 73.0, "key": "Sep 29, 6:50am (Europe/London)"})
-        self.assertEqual(r["week"], {"pct": 22.0, "key": "Oct 5, 9am (Europe/London)"})
+        self.assertEqual(r["five_hour"], {"pct": 73.0, "key": "Sep 29, 6:50am (Europe/London)", "at": 1790661000.0})
+        self.assertEqual(r["week"], {"pct": 22.0, "key": "Oct 5, 9am (Europe/London)", "at": 1791187200.0})
         self.assertEqual(r["other"], {})
+
+    def test_reset_times_are_read_as_times(self):
+        self.assertEqual(quota.parse_reset("7:40am (Europe/London)", NOW), 1790664000.0)  # today, no date
+        self.assertEqual(quota.parse_reset("Jan 2, 9am (Europe/London)", NOW), 1798880400.0)  # next year
+        for bad in ("", "soon", "Sep 29, 6:50am (Not/AZone)"):
+            self.assertIsNone(quota.parse_reset(bad, NOW), bad)
 
     def test_model_specific_week_is_kept_separately(self):
         r = reading(1, 2, extra="Current week (Opus): 40% used · resets Oct 5, 9am (Europe/London)\n")
@@ -58,8 +67,8 @@ class ParseCodex(unittest.TestCase):
 
     def test_real_result(self):
         r = quota.parse_codex(self.REAL)
-        self.assertEqual(r["five_hour"], {"pct": 100.0, "key": "Sep 30 03:35 UTC"})
-        self.assertEqual(r["week"], {"pct": 37.0, "key": "Oct 04 21:59 UTC"})
+        self.assertEqual(r["five_hour"], {"pct": 100.0, "key": "Sep 30 03:35 UTC", "at": 1790739358.0})
+        self.assertEqual(r["week"], {"pct": 37.0, "key": "Oct 04 21:59 UTC", "at": 1791151189.0})
 
     def test_windows_are_found_by_length_not_by_slot(self):
         swapped = {"rateLimitsByLimitId": {"codex": {
@@ -138,6 +147,15 @@ class Controller(unittest.TestCase):
         self.l["studio"]["week"]["Oct 5, 9am (Europe/London)"] = studio_week
         return self.admit(reading(0, account_week))
 
+    def test_a_reworded_reset_time_is_the_same_window(self):
+        # 2026-09-30: Scout's run moved the account from 27% to 30%; /usage said "7:40am" before the run and
+        # "7:39am" after. That is one window: the run used 3 points, not 30.
+        tok, _ = self.admit(reading(27, 31, sk="Sep 30, 7:40am (Europe/London)", wk="Oct 5, 9am (Europe/London)"))
+        after = reading(30, 32, sk="Sep 30, 7:39am (Europe/London)", wk="Oct 5, 8:59am (Europe/London)")
+        quota.release(self.l, tok, after, self.t)
+        self.assertEqual(quota.status(self.l, after, POLICY)["studio"], {"five_hour": 3.0, "week": 1.0})
+        self.assertEqual(self.l["finished"][0]["used"], {"five_hour": 3.0, "week": 1.0})
+
     def test_a_run_across_a_window_reset_counts_in_the_new_window(self):
         tok, _ = self.admit(reading(10, 10))
         new = reading(2, 10.5, sk="Sep 29, 11:50am (Europe/London)")
@@ -211,6 +229,14 @@ class Controller(unittest.TestCase):
         self.assertEqual([json.loads(l)["run"] for l in open(path)], ["run-a", "run-b"])
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
         shutil.rmtree(os.path.dirname(path))
+
+    def test_a_correction_sets_the_current_window(self):
+        tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, reading(40, 40), self.t)
+        self.assertEqual(quota.correct(self.l, "five_hour", 3), ("Sep 29, 6:50am (Europe/London)", 30.0))
+        self.assertEqual(quota.status(self.l, reading(40, 40), POLICY)["studio"]["five_hour"], 3.0)
+        with self.assertRaises(QuotaError):
+            quota.correct(quota.empty(), "week", 1)
 
     def test_very_old_runs_are_ended(self):
         tok, _ = self.admit(reading(10, 10))

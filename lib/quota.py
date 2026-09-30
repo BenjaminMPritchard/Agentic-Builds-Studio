@@ -28,8 +28,47 @@ class QuotaError(Exception):
     pass
 
 
-def parse_usage(text):
-    """{"five_hour": {"pct", "key"}, "week": {...}, "other": {label: pct}} from `claude /usage` output."""
+SAME_WINDOW_SECONDS = 3600  # reset times that differ by less than this are one window (Claude rounds them)
+RESET = re.compile(r"^(?:([A-Z][a-z]{2}) (\d{1,2}), )?(\d{1,2})(?::(\d{2}))?\s*([ap]m)\s*\(([^)]+)\)$")
+MONTHS = {m: i for i, m in enumerate(("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), 1)}
+
+
+def parse_reset(text, now):
+    """Epoch seconds for a `claude /usage` reset such as "Sep 29, 6:50am (Europe/London)" or "7:40am
+    (Europe/London)"; None if it cannot be read (the text is then compared as it is)."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    m = RESET.match((text or "").strip())
+    if not m:
+        return None
+    mon, day, hour, minute, ampm, zone = m.groups()
+    try:
+        tz = ZoneInfo(zone)
+    except Exception:
+        return None
+    hour = int(hour) % 12 + (12 if ampm == "pm" else 0)
+    today = datetime.datetime.fromtimestamp(now, tz)
+    if mon:
+        at = today.replace(month=MONTHS[mon], day=int(day), hour=hour, minute=int(minute or 0), second=0, microsecond=0)
+        if at.timestamp() < now - 2 * 86400:  # "Jan 2" read in late December is next year
+            at = at.replace(year=at.year + 1)
+    else:
+        at = today.replace(hour=hour, minute=int(minute or 0), second=0, microsecond=0)
+        if at.timestamp() < now - 3600:
+            at += datetime.timedelta(days=1)
+    return at.timestamp()
+
+
+def same_window(prev, cur):
+    if prev["key"] == cur["key"]:
+        return True
+    a, b = prev.get("at"), cur.get("at")
+    return a is not None and b is not None and abs(a - b) < SAME_WINDOW_SECONDS
+
+
+def parse_usage(text, now=None):
+    """{"five_hour": {"pct", "key", "at"}, "week": {...}, "other": {label: pct}} from `claude /usage` output."""
+    now = time.time() if now is None else now
     out = {"other": {}}
     for line in text.splitlines():
         m = LINE.match(line)
@@ -37,9 +76,9 @@ def parse_usage(text):
             continue
         kind, model, pct, reset = m.group(1), m.group(2), float(m.group(3)), (m.group(4) or "").strip()
         if kind == "session":
-            out["five_hour"] = {"pct": pct, "key": reset}
+            out["five_hour"] = {"pct": pct, "key": reset, "at": parse_reset(reset, now)}
         elif model and model.lower() == "all models":
-            out["week"] = {"pct": pct, "key": reset}
+            out["week"] = {"pct": pct, "key": reset, "at": parse_reset(reset, now)}
         else:
             out["other"][model] = pct
     missing = [w for w in WINDOWS if w not in out]
@@ -71,7 +110,7 @@ def parse_codex(result):
                 raise QuotaError(f"Codex bucket {bucket_id} {kind} has no usage figure")
             if bucket_id == "codex":
                 at = w.get("resetsAt")
-                out[kind] = {"pct": float(w["usedPercent"]),
+                out[kind] = {"pct": float(w["usedPercent"]), "at": float(at) if at else None,
                              "key": time.strftime("%b %d %H:%M UTC", time.gmtime(at)) if at else ""}
             else:
                 out["other"][f"{bucket_id} {kind}"] = float(w["usedPercent"])
@@ -104,8 +143,11 @@ def observe(ledger, reading, now):
         prev = (last or {}).get(w)
         if prev is None:
             delta = 0.0  # nothing to compare with; the first reading is taken before any run starts
-        elif prev["key"] == cur["key"]:
+        elif same_window(prev, cur):
             delta = max(0.0, cur["pct"] - prev["pct"])
+            if prev["key"] != cur["key"]:  # the reset time was reworded or rounded: keep the window's total
+                studio = ledger["studio"][w]
+                studio[cur["key"]] = round(studio.get(cur["key"], 0.0) + studio.pop(prev["key"], 0.0), 3)
         else:
             delta = cur["pct"]  # a new window began since the last reading
         if active and delta > 0:
@@ -210,6 +252,18 @@ def release(ledger, token, reading, now):
         return
     observe(ledger, reading, now)
     _finish(ledger, token, now, "released")
+
+
+def correct(ledger, window, points):
+    """Set the studio's attributed use in the current `window` by hand (a repair, logged by the caller).
+    Returns (window key, previous value)."""
+    last = ledger.get("last") or {}
+    if window not in WINDOWS or not last.get(window):
+        raise QuotaError(f"no current {window} window to correct")
+    key = last[window]["key"]
+    before = ledger["studio"][window].get(key, 0.0)
+    ledger["studio"][window] = {key: float(points)}
+    return key, before
 
 
 def load_policy(path, provider):
