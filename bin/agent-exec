@@ -73,7 +73,7 @@ CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
 # removes this run's staged files. If the watcher is killed too, the next run's admission and staging do both.
 QUOTA="${STUDIO_QUOTA:-$HERE/studio-quota}"
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; then
-  QTOKEN="$("$QUOTA" admit --provider "$PROVIDER" --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$)" || exit $?
+  QTOKEN="$("$QUOTA" admit --provider "$PROVIDER" --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$ --run "${PAPERCLIP_RUN_ID:-}")" || exit $?
   setsid sh -c '"$0" release --provider "$4" --after-pid "$1" "$2"; "$3" --prune' \
     "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" </dev/null >/dev/null 2>&1 &
 fi

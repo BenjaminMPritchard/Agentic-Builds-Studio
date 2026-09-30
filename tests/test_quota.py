@@ -193,6 +193,25 @@ class Controller(unittest.TestCase):
         self.assertNotIn(tok, self.l["active"])
         self.assertEqual(self.l["samples"]["rec"], [[3.0, 0.0]])
 
+    def test_each_finished_run_leaves_one_record(self):
+        tok, _ = self.admit(reading(10, 10))
+        self.l["active"][tok]["run"] = "run-a"
+        quota.release(self.l, tok, reading(13, 10.5), self.t)
+        gone, _ = self.admit(reading(13, 10.5), pid=999)  # its process will be gone at the next admission
+        self.l["active"][gone]["run"] = "run-b"
+        self.admit(reading(14, 10.5), pid=2)
+        recs = self.l["finished"]
+        self.assertEqual([(r["run"], r["ended"]) for r in recs], [("run-a", "released"), ("run-b", "process gone")])
+        self.assertEqual(recs[0]["used"], {"five_hour": 3.0, "week": 0.5})
+        self.assertEqual((recs[0]["attribution"], recs[0]["windows"]["five_hour"]),
+                         ("bounded", "Sep 29, 6:50am (Europe/London)"))
+        path = os.path.join(tempfile.mkdtemp(), "claude-runs.jsonl")
+        self.assertEqual(quota.flush_finished(self.l, path), 2)
+        self.assertEqual(quota.flush_finished(self.l, path), 0)  # written once
+        self.assertEqual([json.loads(l)["run"] for l in open(path)], ["run-a", "run-b"])
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        shutil.rmtree(os.path.dirname(path))
+
     def test_very_old_runs_are_ended(self):
         tok, _ = self.admit(reading(10, 10))
         self.t += POLICY["max_run_hours"] * 3600 + 1
@@ -223,13 +242,15 @@ class Cli(unittest.TestCase):
                               env=self.env)
 
     def test_admit_release_and_status(self):
-        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid()))
+        r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid()), "--run", "run-9")
         self.assertEqual(r.returncode, 0, r.stderr)
         token = r.stdout.strip()
         self.usage(45, 11)
         self.assertEqual(self.q("release", "--provider", "claude", token).returncode, 0)
         s = json.loads(self.q("status", "--provider", "claude").stdout)
         self.assertEqual((s["studio"], s["active_runs"]), ({"five_hour": 5.0, "week": 1.0}, 0))
+        rec = json.loads(open(os.path.join(self.tmp, "q", "claude-runs.jsonl")).read())
+        self.assertEqual((rec["run"], rec["agent"], rec["used"]), ("run-9", "rec", {"five_hour": 5.0, "week": 1.0}))
         self.assertEqual(os.stat(os.path.join(self.tmp, "q", "claude.json")).st_mode & 0o777, 0o600)
 
     def test_release_waits_for_the_run_to_end(self):
@@ -311,7 +332,7 @@ class AgentExecWiring(unittest.TestCase):
         os.chmod(self.fake, 0o755)
         env = {**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1", "STUDIO_AGENTS_APP_CONFIG": "/nonexistent",
                "STUDIO_QUOTA": self.fake, "STUDIO_QUOTA_POLL": "0.1", "STUDIO_QUOTA_SETTLE": "0",
-               "PAPERCLIP_AGENT_ID": "agent-1"}
+               "PAPERCLIP_AGENT_ID": "agent-1", "PAPERCLIP_RUN_ID": "run-7"}
         return subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
                               capture_output=True, text=True, env=env, timeout=10)
 
@@ -327,7 +348,7 @@ class AgentExecWiring(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("setpriv", r.stdout)
         log = self.lines(2)
-        self.assertRegex(log[0], r"^admit --provider claude --agent agent-1 --pid \d+$")
+        self.assertRegex(log[0], r"^admit --provider claude --agent agent-1 --pid \d+ --run run-7$")
         self.assertRegex(log[1], r"^release --provider claude --after-pid \d+ tok123$")
 
     def test_a_refused_run_does_not_start(self):

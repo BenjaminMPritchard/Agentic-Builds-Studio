@@ -117,18 +117,41 @@ def observe(ledger, reading, now):
     ledger["last"] = {"t": now, **{w: reading[w] for w in WINDOWS}}
 
 
-def _finish(ledger, token):
+def _finish(ledger, token, now, how):
     run = ledger["active"].pop(token)
     samples = ledger["samples"].setdefault(run["agent"], [])
     samples.append([run["used"]["five_hour"], run["used"]["week"]])
     del samples[:-20]
+    # One record per run for the Clerk (research 11.1, quotas): attributed use is a bound, not a measurement.
+    last = ledger.get("last") or {}
+    ledger.setdefault("finished", []).append({
+        "run": run.get("run") or None, "agent": run["agent"], "admitted_at": run["t"], "ended_at": now,
+        "ended": how, "used": run["used"], "reserved": run["reserve"], "attribution": "bounded",
+        "windows": {w: (last.get(w) or {}).get("key") for w in WINDOWS}})
+
+
+def flush_finished(ledger, path):
+    """Append finished-run records to `path` (JSON lines) and drop them from the ledger. Called while the
+    ledger is locked, so each record is written once; the Clerk also de-duplicates by run id."""
+    done = ledger.pop("finished", [])
+    if not done:
+        return 0
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a") as f:
+        for rec in done:
+            f.write(json.dumps(rec) + "\n")
+    return len(done)
 
 
 def _drop_finished(ledger, policy, now, pid_alive):
     """Runs whose process is gone (or that are too old) were active until this reading; now they end."""
     for token, run in list(ledger["active"].items()):
-        if run.get("ended") or not pid_alive(run["pid"]) or now - run["t"] > policy["max_run_hours"] * 3600:
-            _finish(ledger, token)
+        if run.get("ended"):
+            _finish(ledger, token, now, "released without a reading")
+        elif not pid_alive(run["pid"]):
+            _finish(ledger, token, now, "process gone")
+        elif now - run["t"] > policy["max_run_hours"] * 3600:
+            _finish(ledger, token, now, "too old")
 
 
 def estimate(ledger, agent, policy):
@@ -146,7 +169,7 @@ def status(ledger, reading, policy):
             "week": policy["weekly_cap"]}, "active_runs": len(ledger["active"])}
 
 
-def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive):
+def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=None):
     """Returns (token, []) when admitted, else (None, reasons). Mutates the ledger either way."""
     observe(ledger, reading, now)
     _drop_finished(ledger, policy, now, pid_alive)
@@ -173,7 +196,7 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive):
     if reasons:
         return None, reasons
     token = uuid.uuid4().hex
-    ledger["active"][token] = {"agent": agent, "pid": pid, "t": now, "reserve": job,
+    ledger["active"][token] = {"agent": agent, "pid": pid, "t": now, "reserve": job, "run": run,
                                "used": {w: 0.0 for w in WINDOWS}}
     return token, []
 
@@ -186,7 +209,7 @@ def release(ledger, token, reading, now):
         ledger["active"][token]["ended"] = True
         return
     observe(ledger, reading, now)
-    _finish(ledger, token)
+    _finish(ledger, token, now, "released")
 
 
 def load_policy(path, provider):
