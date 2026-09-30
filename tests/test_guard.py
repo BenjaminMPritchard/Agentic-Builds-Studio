@@ -92,6 +92,27 @@ class Guard(unittest.TestCase):
         self.assertEqual(run("Write", {"file_path": "new/dir/b.txt", "content": "y"}, self.repo), 2)
         self.assertEqual(run("Edit", {"file_path": "a.txt", "new_string": "y"}, self.work), 0)
 
+    def test_commit_is_checked_where_it_runs_not_where_the_session_started(self):
+        # Codex sessions start in the repository (on main) and commit in the task's worktree.
+        w, r = self.work, self.repo
+        self.assertEqual(self.bash(f"cd {w} && git add -A && git commit -m x", cwd=r), 0)
+        self.assertEqual(self.bash(f"git -C {w} commit -m x", cwd=r), 0)
+        self.assertEqual(self.bash(f'/usr/bin/bash -lc "cd {w} && git commit -m x"', cwd=r), 0)
+        self.assertEqual(self.bash("(cd wt && git commit -m x)", cwd=r), 0)
+        self.assertEqual(run("Bash", {"command": "git commit -m x", "workdir": w}, r), 0)
+        # ...and the other way round
+        self.assertEqual(self.bash(f"cd {r} && git commit -m x"), 2)
+        self.assertEqual(self.bash(f"git -C {r} commit -m x"), 2)
+        self.assertEqual(self.bash(f'bash -lc "cd {r}; git commit -m x"'), 2)
+        self.assertEqual(run("Bash", {"command": "git commit -m x", "workdir": r}, w), 2)
+        self.assertEqual(self.bash(f"cd {r} && git push"), 2)
+        # a cd that fails leaves the shell where it was
+        self.assertEqual(self.bash(f"cd {w}/nope; git commit -m x", cwd=r), 2)
+        # a folder the Guard cannot work out is refused for git writes, not guessed
+        for cmd in ("cd $W && git commit -m x", "cd - && git commit -m x", "git -C $W commit -m x", "cd ~ && git push"):
+            self.assertEqual(self.bash(cmd), 2, cmd)
+        self.assertEqual(self.bash("cd $W && ls"), 0)
+
     def test_protected_paths(self):
         for p in ["CLAUDE.md", ".claude/settings.json", "docs/PLAN.md", ".studio/project.yaml", "CONSTITUTION.md"]:
             self.assertEqual(run("Edit", {"file_path": p, "new_string": "y"}, self.work), 2, p)
