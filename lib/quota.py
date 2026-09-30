@@ -188,15 +188,25 @@ def flush_finished(ledger, path):
     return len(done)
 
 
-def _drop_finished(ledger, policy, now, pid_alive):
-    """Runs whose process is gone (or that are too old) were active until this reading; now they end."""
+def _drop_gone(ledger, policy, now, pid_alive):
+    """Before counting new usage: a run whose process is gone (or that is too old) ended at some unknown time,
+    so it gets none of the usage since the last reading. Otherwise a run killed with its release watcher (a
+    service restart) would absorb everything the account uses until the next admission (2026-09-30: 15 points
+    of Benjamin's own use)."""
     for token, run in list(ledger["active"].items()):
         if run.get("ended"):
-            _finish(ledger, token, now, "released without a reading")
-        elif not pid_alive(run["pid"]):
+            continue
+        if not pid_alive(run["pid"]):
             _finish(ledger, token, now, "process gone")
         elif now - run["t"] > policy["max_run_hours"] * 3600:
             _finish(ledger, token, now, "too old")
+
+
+def _drop_ended(ledger, now):
+    """After counting: runs released without a reading ended just before this reading; now they end."""
+    for token, run in list(ledger["active"].items()):
+        if run.get("ended"):
+            _finish(ledger, token, now, "released without a reading")
 
 
 def estimate(ledger, agent, policy):
@@ -216,8 +226,9 @@ def status(ledger, reading, policy):
 
 def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=None):
     """Returns (token, []) when admitted, else (None, reasons). Mutates the ledger either way."""
+    _drop_gone(ledger, policy, now, pid_alive)
     observe(ledger, reading, now)
-    _drop_finished(ledger, policy, now, pid_alive)
+    _drop_ended(ledger, now)
     job = estimate(ledger, agent, policy)
     s = status(ledger, reading, policy)
     m = policy["margin"]
