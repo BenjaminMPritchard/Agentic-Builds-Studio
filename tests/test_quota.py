@@ -156,6 +156,13 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.status(self.l, after, POLICY)["studio"], {"five_hour": 3.0, "week": 1.0})
         self.assertEqual(self.l["finished"][0]["used"], {"five_hour": 3.0, "week": 1.0})
 
+    def test_a_ledger_written_before_the_fix_is_still_read_correctly(self):
+        self.l["last"] = {"t": NOW, "five_hour": {"pct": 27.0, "key": "Sep 30, 7:40am (Europe/London)"},
+                          "week": {"pct": 31.0, "key": "Oct 5, 9am (Europe/London)"}}  # no "at": old format
+        self.l["studio"]["week"] = {"Oct 5, 9am (Europe/London)": 1.0}
+        quota.observe(self.l, reading(28, 31, sk="Sep 30, 7:39am (Europe/London)", wk="Oct 5, 8:59am (Europe/London)"), NOW)
+        self.assertEqual(self.l["studio"]["week"], {"Oct 5, 8:59am (Europe/London)": 1.0})  # kept, not dropped
+
     def test_a_run_across_a_window_reset_counts_in_the_new_window(self):
         tok, _ = self.admit(reading(10, 10))
         new = reading(2, 10.5, sk="Sep 29, 11:50am (Europe/London)")

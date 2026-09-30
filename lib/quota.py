@@ -59,10 +59,13 @@ def parse_reset(text, now):
     return at.timestamp()
 
 
-def same_window(prev, cur):
+def same_window(prev, cur, now=None):
     if prev["key"] == cur["key"]:
         return True
-    a, b = prev.get("at"), cur.get("at")
+    now = time.time() if now is None else now
+    # Readings stored before reset times were parsed carry only the text: parse it now.
+    a = prev.get("at") if prev.get("at") is not None else parse_reset(prev["key"], now)
+    b = cur.get("at") if cur.get("at") is not None else parse_reset(cur["key"], now)
     return a is not None and b is not None and abs(a - b) < SAME_WINDOW_SECONDS
 
 
@@ -143,7 +146,7 @@ def observe(ledger, reading, now):
         prev = (last or {}).get(w)
         if prev is None:
             delta = 0.0  # nothing to compare with; the first reading is taken before any run starts
-        elif same_window(prev, cur):
+        elif same_window(prev, cur, now):
             delta = max(0.0, cur["pct"] - prev["pct"])
             if prev["key"] != cur["key"]:  # the reset time was reworded or rounded: keep the window's total
                 studio = ledger["studio"][w]
