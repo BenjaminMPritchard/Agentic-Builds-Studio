@@ -50,6 +50,12 @@ case "$PROVIDER" in
     # cannot read. Open paperclip's own files to the agent group; studio-agent's auth.json is not ours to touch.
     if [ -d "$CODEX_HOME" ]; then
       find "$CODEX_HOME" -user "$(id -un)" \( -type d -exec chmod g+rwxs {} + -o -type f -exec chmod g+rw {} + \) 2>/dev/null || true
+      # Paperclip authenticates its MCP gateways with `headers = {...}`; Codex 0.156 reads only `http_headers` and
+      # ignores the rest, so the agent had no Paperclip tools (2026-09-30, AGE-19). Rename it in the MCP tables.
+      if [ -f "$CODEX_HOME/config.toml" ] && [ -O "$CODEX_HOME/config.toml" ]; then
+        FIXED="$(awk '/^\[/ { mcp = ($0 ~ /^\[mcp_servers\./) } mcp && /^headers = / { sub(/^headers = /, "http_headers = ") } { print }' "$CODEX_HOME/config.toml")" \
+          && printf '%s\n' "$FIXED" > "$CODEX_HOME/config.toml"
+      fi
     fi
     unset OPENAI_API_KEY OPENAI_BASE_URL ;;
   *) refuse "unknown STUDIO_AGENT_PROVIDER '$PROVIDER'" ;;

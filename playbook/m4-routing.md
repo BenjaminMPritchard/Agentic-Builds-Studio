@@ -100,3 +100,7 @@ deleted is checked by the requester before anyone acts on it.
   Codex hook matcher covers every tool. Re-run `deploy/codex-setup.sh` to install the new requirements file.
 - Codex-Scout reported it had no Paperclip controls to set its task's status (it did comment). To look into
   before any Codex agent is made routable.
+- Re-check after #53: steps 1–3 refused again; Codex-Scout declined to call `spawn_agent` (Studio rule), so the
+  block stands on the Guard tests and the `.*` hook matcher. **Why Codex had no Paperclip tools:** Paperclip
+  writes its MCP gateways into `config.toml` with `headers = {...}`, which Codex 0.156 ignores (it reads
+  `http_headers`), so the tools had no credentials. `agent-exec` now renames the key in `[mcp_servers.*]` tables.
