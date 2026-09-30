@@ -53,7 +53,7 @@ case "$PROVIDER" in
       # Paperclip authenticates its MCP gateways with `headers = {...}`; Codex 0.156 reads only `http_headers` and
       # ignores the rest, so the agent had no Paperclip tools (2026-09-30, AGE-19). Rename it in the MCP tables.
       if [ -f "$CODEX_HOME/config.toml" ] && [ -O "$CODEX_HOME/config.toml" ]; then
-        FIXED="$(awk '/^\[/ { mcp = ($0 ~ /^\[mcp_servers\./) } mcp && /^headers = / { sub(/^headers = /, "http_headers = ") } { print }' "$CODEX_HOME/config.toml")" \
+        FIXED="$(awk '/^\[/ { mcp = ($0 ~ /^\[mcp_servers\./) } mcp && /^headers = / { sub(/^headers = /, "http_headers = ") } { print }' "$CODEX_HOME/config.toml" 2>/dev/null)" \
           && printf '%s\n' "$FIXED" > "$CODEX_HOME/config.toml"
       fi
     fi
@@ -104,8 +104,13 @@ CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
 QUOTA="${STUDIO_QUOTA:-$HERE/studio-quota}"
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; then
   QTOKEN="$("$QUOTA" admit --provider "$PROVIDER" --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$ --run "${PAPERCLIP_RUN_ID:-}")" || exit $?
-  setsid sh -c '"$0" release --provider "$4" --after-pid "$1" "$2"; "$3" --prune' \
-    "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" </dev/null >/dev/null 2>&1 &
+  # Codex rewrites its config.toml as studio-agent with mode 0600 (it records the project it ran in), and
+  # Paperclip then cannot open it to write the next run's MCP settings: every later Codex run fails. Paperclip can
+  # still remove the file (the folder is its own), and writes a fresh one on the next run; only Codex's project
+  # trust entries are lost, which the Studio does not want kept anyway.
+  setsid sh -c '"$0" release --provider "$4" --after-pid "$1" "$2"; "$3" --prune
+    if [ -n "$5" ] && [ -e "$5/config.toml" ] && [ ! -r "$5/config.toml" ]; then rm -f "$5/config.toml"; fi' \
+    "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" "${CODEX_HOME:-}" </dev/null >/dev/null 2>&1 &
 fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
