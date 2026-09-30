@@ -4,7 +4,7 @@
   "agents": {
     "Clerk":        {"provider": "script", "status": "active", "use": "polling, gates, CI and check status, diffs, counts, cost and usage reports"},
     "Worker":       {"provider": "local", "model": "qwen3.5:4b", "status": "active", "use": "bounded jobs from qwen/jobs with a passing golden set (qwen-job skill); no cloud usage"},
-    "Scout":        {"provider": "claude", "model": "claude-haiku-4-5-20251001", "effort": "default", "status": "planned", "use": "exhaustive but bounded doing: repo inventories, evidence collection, extraction beyond the Worker's context; returns an evidence packet"},
+    "Scout":        {"provider": "claude", "model": "claude-haiku-4-5-20251001", "effort": "medium", "status": "active", "use": "exhaustive but bounded doing: repo inventories, evidence collection, extraction beyond the Worker's context; returns an evidence packet"},
     "Codex-Scout":  {"provider": "codex", "model": "gpt-6-luna", "effort": "medium", "status": "planned", "use": "same work as Scout, on the Codex allowance"},
     "Liaison":      {"provider": "claude", "model": "claude-sonnet-5", "effort": "low", "status": "active", "use": "client and Board drafts, the question register"},
     "Recorder":     {"provider": "claude", "model": "claude-sonnet-5", "effort": "low", "status": "active", "use": "journals, metrics and lessons in the Studio repo"},
