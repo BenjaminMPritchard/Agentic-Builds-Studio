@@ -90,3 +90,30 @@ failed. Accounts and keys stay in the database, unused, until the next switch.
 
 `CONSTITUTION.md` states the `local_trusted` gap. Once stage B is verified, Claude proposes the change and
 Benjamin approves it; the Constitution is changed only with his explicit approval.
+
+## The Clerk's service user (Benjamin, 2026-09-30: option A)
+
+Why: in authenticated mode the Clerk, as an agent, may change only its own tasks. Its jobs (PR comments,
+marking merged work done, updating PR work products, handing red work to the Principal, "bring main in"
+comments, the Director-inbox digest, waking the Director) touch other agents' tasks. As a company **operator**
+(a human role whose only grant is `tasks:assign`; commenting, changing tasks and waking agents need only
+membership) it can do exactly these, with every action recorded as "Studio Clerk". Its key is readable by
+`paperclip` alone; `bin/clerk` uses it when `/srv/studio/data/clerk/board-key` exists, refuses it if others
+can read it, and sends no run header (a user is not a run).
+
+1. Claude creates an operator invite and gives Benjamin its link.
+2. Open sign-up for a few minutes:
+   `sudo sed -i '/^PAPERCLIP_AUTH_DISABLE_SIGN_UP=/d' /etc/paperclip.env && sudo systemctl restart paperclip && sleep 15`
+3. In a **private browser window**, open the invite link and sign up as "Studio Clerk" with an address and a
+   long password kept in the password manager (only needed to issue a new key). Accept the invite. If it waits
+   for approval, Claude approves it with the Board key.
+4. Close sign-up again and check:
+   `printf 'PAPERCLIP_AUTH_DISABLE_SIGN_UP=true\n' | sudo tee -a /etc/paperclip.env >/dev/null && sudo systemctl restart paperclip && sleep 15 && grep -c '^PAPERCLIP_AUTH_DISABLE_SIGN_UP=true' /etc/paperclip.env`
+5. Make the Clerk's key, approving the printed URL **in the private window** (signed in as Studio Clerk):
+   ```sh
+   sudo install -d -o paperclip -g paperclip -m 0700 /srv/studio/data/clerk
+   sudo -u paperclip -H env PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin PAPERCLIP_AUTH_STORE=/srv/studio/data/clerk/cli-auth.json npx --yes paperclipai@2026.916.1 auth login --api-base http://127.0.0.1:3100 --no-browser
+   sudo -u paperclip python3 -c 'import json,os; c=json.load(open("/srv/studio/data/clerk/cli-auth.json"))["credentials"]; t=next(iter(c.values()))["token"]; fd=os.open("/srv/studio/data/clerk/board-key", os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600); os.write(fd, (t+"\n").encode()); os.close(fd); os.remove("/srv/studio/data/clerk/cli-auth.json"); print("saved")'
+   ```
+6. Claude checks the key is the Studio Clerk with the operator role, runs one dry-run tick, then turns the
+   Clerk live. Close the private window.

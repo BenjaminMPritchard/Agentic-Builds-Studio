@@ -42,7 +42,8 @@ class Paperclip:
     def __init__(self, base=None, key=None, run_id=None, cli="paperclipai"):
         self.base = (base or os.environ.get("PAPERCLIP_API_URL", "http://localhost:3100")).rstrip("/")
         self.key = key or os.environ.get("PAPERCLIP_API_KEY", "") or board_key()
-        self.run_id = run_id or os.environ.get("PAPERCLIP_RUN_ID", "")
+        # run_id=False: a user key (the Clerk's service user) is not a run, so no run header is sent.
+        self.run_id = "" if run_id is False else (run_id or os.environ.get("PAPERCLIP_RUN_ID", ""))
         self.cli = cli
 
     def call(self, method, path, body=None):
