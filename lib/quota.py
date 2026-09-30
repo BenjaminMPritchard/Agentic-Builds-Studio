@@ -48,6 +48,39 @@ def parse_usage(text):
     return out
 
 
+CODEX_WINDOWS = {300: "five_hour", 10080: "week"}  # by duration in minutes, never by "primary"/"secondary"
+
+
+def parse_codex(result):
+    """Reading from the Codex App Server's `account/rateLimits/read` result. The studio caps apply to the
+    `codex` bucket; every other bucket (a per-model limit) counts only toward account headroom. A window of
+    an unexpected length, or no `codex` bucket, is an error: no reading, no run."""
+    buckets = (result or {}).get("rateLimitsByLimitId") or {}
+    if "codex" not in buckets:
+        raise QuotaError("Codex rate limits have no `codex` bucket")
+    out = {"other": {}}
+    for bucket_id, bucket in buckets.items():
+        for slot in ("primary", "secondary"):
+            w = (bucket or {}).get(slot)
+            if not w:
+                continue
+            kind = CODEX_WINDOWS.get(w.get("windowDurationMins"))
+            if kind is None:
+                raise QuotaError(f"Codex bucket {bucket_id} has a {w.get('windowDurationMins')}-minute window")
+            if w.get("usedPercent") is None:
+                raise QuotaError(f"Codex bucket {bucket_id} {kind} has no usage figure")
+            if bucket_id == "codex":
+                at = w.get("resetsAt")
+                out[kind] = {"pct": float(w["usedPercent"]),
+                             "key": time.strftime("%b %d %H:%M UTC", time.gmtime(at)) if at else ""}
+            else:
+                out["other"][f"{bucket_id} {kind}"] = float(w["usedPercent"])
+    missing = [w for w in WINDOWS if w not in out]
+    if missing:
+        raise QuotaError(f"Codex rate limits have no {' or '.join(missing)} window")
+    return out
+
+
 def empty():
     return {"last": None, "studio": {w: {} for w in WINDOWS}, "active": {}, "samples": {}}
 

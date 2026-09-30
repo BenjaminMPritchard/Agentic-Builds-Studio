@@ -26,18 +26,28 @@ the rest of each agent's settings alone.
 A `claude_local` agent through `agent-exec`, like the others: its own instructions (`agents/scout/`), a
 read-mostly settings file, Haiku 4.5. Only Paperclip configuration and instructions; no host step.
 
-## 3. Codex runtime (host steps, then code)
+## 3. Codex runtime — implemented (this branch), not yet activated
 
-What Codex agents need before any can run, found on 2026-09-29:
-
-| Need | State |
+| Need | Done |
 | --- | --- |
-| Codex CLI for `studio-agent` | Installed only for Benjamin (0.156.1). Host step: install for `studio-agent` |
-| ChatGPT sign-in | Device login into a Studio `CODEX_HOME` that `studio-agent` can read (Paperclip's managed Codex home is under `/home/paperclip`, which confined runs cannot read) |
-| Confinement | `agent-exec` and the sudo rule allow only the Claude CLI; extend both to the Codex CLI, same `studio-agent` user and staging |
-| Guard | Codex hooks are stable in 0.156; wire `bin/guard` as a pre-tool hook so Codex runs meet the same rules as Claude runs |
-| Usage cap (15% / 80%) | `studio-quota` has no Codex reader, so Codex runs are refused today. Add one from the Codex App Server rate-limit buckets (`account/rateLimits/read`), inspecting every bucket (research 5.2) |
-| Adapter | `codex_local` with `engine: "cli"` and `command` pointing at the Codex wrapper; `OPENAI_API_KEY` stays empty (no API billing) |
+| One Codex binary for everyone | `deploy/codex-setup.sh` installs Benjamin's Codex (0.156.1, a static binary) as root-owned `/usr/local/bin/codex` |
+| Guard and the Constitution for Codex | `/etc/codex/requirements.toml` (from `deploy/codex/requirements.toml`), managed settings nobody can override: Guard as the only pre-tool hook for shell, patches and MCP tools (no per-hook trust step), `multi_agent` and `multi_agent_v2` off (no sub-agents), sandbox limited to read-only and workspace-write. `agent-exec` refuses a Codex run unless all of these are pinned, and refuses Codex's bypass flags |
+| Guard understands Codex edits | `bin/guard` checks `apply_patch` the way it checks Edit/Write: every file the patch adds, updates, deletes or moves against protected paths and `main`, added lines for live keys. (Also fixed for Claude: a new file in a new folder on `main` was not caught) |
+| Confinement | `agent-exec` with `STUDIO_AGENT_PROVIDER=codex` runs `/usr/local/bin/codex` as `studio-agent` through the same staging, scratch sharing, App token and quota steps; a new sudo rule allows exactly that binary |
+| Sign-in | ChatGPT device login, once, as `studio-agent` into `/srv/studio/data/codex-home` (Codex rewrites `auth.json` owner-only on every token refresh, so one user must own it). Paperclip writes skills there. No API key anywhere: `OPENAI_API_KEY` is empty and `agent-exec` removes it |
+| 15% / 80% cap | `studio-quota` reads Codex with `account/rateLimits/read` from `codex app-server` (no model call), run as `studio-agent`; windows found by length (300 and 10080 minutes), other buckets count toward account headroom only. Verified live against Benjamin's account on 2026-09-30 (5-hour 100%, week 37%: correctly refused) |
+| Agents | Codex-Scout (GPT-6 Luna), Codex-Builder (GPT-6 Sol), Codex-Principal (GPT-6 Astra): instructions in `agents/codex-*`, payloads in `package/payloads/`; CLI engine, no bypass, no fast mode, `/srv/studio/projects` writable for commits in project worktrees |
+
+The docs do not say outright that `requirements.toml` applies to `codex exec`; the first Codex run proves it with
+a deliberate Guard check before any real work. Codex reviews go through Paperclip's review stage (Codex has
+no `/code-review`, and sub-agents are off).
+
+### Activate (Benjamin, after #44 and this PR are merged)
+1. The usual fast-forward.
+2. `sudo bash /srv/studio/company/deploy/codex-setup.sh`, then the sign-in it prints (as `studio-agent`).
+3. Work folders: `sudo install -d -o paperclip -g studio -m 2775 /srv/studio/work/{scout,codex-scout,codex-builder,codex-principal}`.
+Claude then creates the four agents paused, checks `studio-quota status --provider codex`, and marks them
+active in `policy/routing.json` once the first Guard check passes.
 
 ## 4. Model versions (decision for Benjamin)
 

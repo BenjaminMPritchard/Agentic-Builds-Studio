@@ -1,0 +1,23 @@
+# /etc/codex/requirements.toml (root-owned; installed by deploy/codex-setup.sh). Managed Codex settings that a
+# user, project or command-line flag cannot override. bin/agent-exec refuses Codex runs unless these are pinned.
+
+# Guard is the only hook that runs, and it needs no per-hook trust approval.
+allow_managed_hooks_only = true
+
+# No full-access sandbox: agents write only their workspace (and the writable roots their adapter adds).
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+
+[features]
+hooks = true
+# The Constitution: no sub-agents. Parallel work goes through Paperclip subtasks.
+multi_agent = false
+multi_agent_v2 = false
+
+[[hooks.PreToolUse]]
+matcher = "^(Bash|apply_patch|Edit|Write|mcp__.*)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/srv/studio/bin/guard"
+timeout = 30
+statusMessage = "Studio Guard"

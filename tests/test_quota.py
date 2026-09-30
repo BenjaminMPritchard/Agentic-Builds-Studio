@@ -49,6 +49,41 @@ class Parse(unittest.TestCase):
                 quota.parse_usage(text)
 
 
+class ParseCodex(unittest.TestCase):
+    # The shape `account/rateLimits/read` returned for Benjamin's Plus account on 2026-09-30.
+    REAL = {"ordinaryUsageAllowed": False, "rateLimitsByLimitId": {"codex": {
+        "limitId": "codex", "primary": {"usedPercent": 100, "windowDurationMins": 300, "resetsAt": 1790739358},
+        "secondary": {"usedPercent": 37, "windowDurationMins": 10080, "resetsAt": 1791151189},
+        "credits": {"hasCredits": False, "unlimited": False, "balance": "0"}, "planType": "plus"}}}
+
+    def test_real_result(self):
+        r = quota.parse_codex(self.REAL)
+        self.assertEqual(r["five_hour"], {"pct": 100.0, "key": "Sep 30 03:35 UTC"})
+        self.assertEqual(r["week"], {"pct": 37.0, "key": "Oct 04 21:59 UTC"})
+
+    def test_windows_are_found_by_length_not_by_slot(self):
+        swapped = {"rateLimitsByLimitId": {"codex": {
+            "primary": {"usedPercent": 5, "windowDurationMins": 10080, "resetsAt": 2},
+            "secondary": {"usedPercent": 50, "windowDurationMins": 300, "resetsAt": 1}}}}
+        r = quota.parse_codex(swapped)
+        self.assertEqual((r["five_hour"]["pct"], r["week"]["pct"]), (50.0, 5.0))
+
+    def test_other_buckets_count_only_toward_account_headroom(self):
+        res = dict(self.REAL["rateLimitsByLimitId"])
+        res["gpt-6-astra"] = {"primary": {"usedPercent": 99.8, "windowDurationMins": 10080, "resetsAt": 3}}
+        r = quota.parse_codex({"rateLimitsByLimitId": res})
+        self.assertEqual(r["other"], {"gpt-6-astra week": 99.8})
+
+    def test_anything_unexpected_is_no_reading(self):
+        for bad in ({}, {"rateLimitsByLimitId": {"other": {}}},
+                    {"rateLimitsByLimitId": {"codex": {"primary": {"usedPercent": 1, "windowDurationMins": 60}}}},
+                    {"rateLimitsByLimitId": {"codex": {"primary": {"usedPercent": 1, "windowDurationMins": 300}}}},
+                    {"rateLimitsByLimitId": {"codex": {"primary": {"windowDurationMins": 300},
+                                                        "secondary": {"usedPercent": 1, "windowDurationMins": 10080}}}}):
+            with self.assertRaises(QuotaError, msg=bad):
+                quota.parse_codex(bad)
+
+
 class Controller(unittest.TestCase):
     def setUp(self):
         self.l = quota.empty()
@@ -218,9 +253,43 @@ class Cli(unittest.TestCase):
         self.usage(1, 1, code=1)
         r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", "1")
         self.assertEqual((r.returncode, r.stdout), (6, ""))
+        self.env.update(STUDIO_QUOTA_CODEX_CLI=os.path.join(self.tmp, "missing-codex"), STUDIO_QUOTA_CODEX_USER="")
         r = self.q("admit", "--provider", "codex", "--agent", "rec", "--pid", "1")
-        self.assertEqual(r.returncode, 6)
-        self.assertIn("no usage reader for codex", r.stderr)
+        self.assertEqual((r.returncode, r.stdout), (6, ""))
+        self.assertIn("no codex usage reading", r.stderr)
+
+    def fake_codex(self, five, week, extra=None):
+        result = {"rateLimitsByLimitId": {"codex": {
+            "primary": {"usedPercent": five, "windowDurationMins": 300, "resetsAt": 1790739358},
+            "secondary": {"usedPercent": week, "windowDurationMins": 10080, "resetsAt": 1791151189}}, **(extra or {})}}
+        path = os.path.join(self.tmp, "codex")
+        with open(path, "w") as f:
+            f.write("#!/usr/bin/env python3\nimport json, os, sys\n"
+                    "assert sys.argv[1:] == ['app-server'] and not os.environ.get('OPENAI_API_KEY')\n"
+                    "assert os.environ['CODEX_HOME'] == os.environ['EXPECT_HOME']\n"
+                    "for line in sys.stdin:\n"
+                    "    m = json.loads(line)\n"
+                    "    if m.get('id') == 1: print(json.dumps({'id': 1, 'result': {}}), flush=True)\n"
+                    "    if m.get('id') == 2:\n"
+                    f"        print(json.dumps({{'method': 'account/updated'}}), flush=True)\n"
+                    f"        print(json.dumps({{'id': 2, 'result': {json.dumps(result)}}}), flush=True)\n")
+        os.chmod(path, 0o755)
+        home = os.path.join(self.tmp, "codex-home")
+        self.env.update(STUDIO_QUOTA_CODEX_CLI=path, STUDIO_CODEX_HOME=home, EXPECT_HOME=home, OPENAI_API_KEY="sk-x",
+                        STUDIO_QUOTA_CODEX_USER="")  # no sudo in tests
+
+    def test_codex_reading_and_its_own_cap(self):
+        self.fake_codex(10, 37)
+        s = json.loads(self.q("status", "--provider", "codex").stdout)
+        self.assertEqual((s["account"], s["caps"]), ({"five_hour": 10.0, "week": 37.0}, {"five_hour": 15, "week": 80}))
+        r = self.q("admit", "--provider", "codex", "--agent", "cx", "--pid", str(os.getpid()))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.fake_codex(100, 37)  # the account's five-hour window is used up
+        r = self.q("admit", "--provider", "codex", "--agent", "cx", "--pid", "2")
+        self.assertEqual(r.returncode, 5)
+        self.assertIn("account 5-hour", r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "q", "codex.json")))  # its own ledger
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "q", "claude.json")))
 
 
 class AgentExecWiring(unittest.TestCase):

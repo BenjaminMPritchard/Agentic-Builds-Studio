@@ -36,8 +36,48 @@ def read_claude():
     return quota.parse_usage(r.stdout)
 
 
-DROP_ENV = {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"}
-READERS = {"claude": read_claude}
+def read_codex():
+    cli = os.environ.get("STUDIO_QUOTA_CODEX_CLI", "/usr/local/bin/codex")
+    env = {k: v for k, v in os.environ.items() if k not in DROP_ENV}
+    env["CODEX_HOME"] = os.environ.get("STUDIO_CODEX_HOME", "/srv/studio/data/codex-home")
+    requests = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "studio-quota", "version": "1"}}},
+                {"jsonrpc": "2.0", "method": "initialized", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": {}}]
+    try:
+        # The sign-in belongs to studio-agent (Codex keeps auth.json owner-only and rewrites it on every token
+        # refresh), so the reader runs Codex as studio-agent through the same sudo rule the agents use.
+        user = os.environ.get("STUDIO_QUOTA_CODEX_USER", "studio-agent")
+        cmd = ["sudo", "-n", "-E", "-u", user, "/usr/bin/setpriv", "--pdeathsig", "KILL", "--", cli, "app-server"] \
+            if user else [cli, "app-server"]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, env=env, cwd=LEDGER_DIR)
+    except OSError as e:
+        raise quota.QuotaError(f"could not run {cli} app-server: {e}")
+    try:
+        proc.stdin.write("".join(json.dumps(r) + "\n" for r in requests))
+        proc.stdin.flush()
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("id") == 2:
+                if "error" in msg:
+                    raise quota.QuotaError(f"Codex rate limits: {str(msg['error'])[:200]}")
+                return quota.parse_codex(msg.get("result"))
+        raise quota.QuotaError("Codex app-server gave no rate-limit answer")
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+DROP_ENV = {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+            "OPENAI_API_KEY", "OPENAI_BASE_URL"}
+READERS = {"claude": read_claude, "codex": read_codex}
 
 
 def reading(provider):

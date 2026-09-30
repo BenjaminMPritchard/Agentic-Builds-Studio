@@ -89,6 +89,7 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("git commit -m x", cwd=self.repo), 2)
         self.assertEqual(self.bash("git commit -m x"), 0)
         self.assertEqual(run("Edit", {"file_path": "a.txt", "new_string": "y"}, self.repo), 2)
+        self.assertEqual(run("Write", {"file_path": "new/dir/b.txt", "content": "y"}, self.repo), 2)
         self.assertEqual(run("Edit", {"file_path": "a.txt", "new_string": "y"}, self.work), 0)
 
     def test_protected_paths(self):
@@ -101,6 +102,19 @@ class Guard(unittest.TestCase):
         self.assertEqual(run("Edit", {"file_path": ".studio-allowed-paths", "new_string": "CLAUDE.md"}, self.work), 2)
         self.assertEqual(self.bash("echo hi >> CLAUDE.md"), 2)
         self.assertEqual(self.bash("cat CLAUDE.md"), 0)
+
+    def test_codex_apply_patch_gets_the_same_file_checks(self):
+        def patch(body):
+            return {"command": "*** Begin Patch\n" + body + "\n*** End Patch"}
+        ok = patch("*** Update File: src/app.py\n@@\n-a\n+b")
+        self.assertEqual(run("apply_patch", ok, self.work), 0)
+        for body in ("*** Update File: CONSTITUTION.md\n@@\n-a\n+b",
+                     "*** Add File: notes.txt\n+hello\n*** Update File: .claude/settings.json\n@@\n-a\n+b",
+                     "*** Update File: src/app.py\n*** Move to: docs/PLAN.md\n@@\n-a\n+b",
+                     "*** Add File: k.env\n+KEY=sk_live_abc123"):
+            self.assertEqual(run("apply_patch", patch(body), self.work), 2, body)
+        self.assertEqual(run("apply_patch", ok, self.repo), 2)  # on main
+        self.assertEqual(run("apply_patch", {"command": "rm -rf /"}, self.work), 2)  # not a patch
 
     def test_reads_and_mentions_of_protected_files_are_fine(self):
         for c in ["cat CONSTITUTION.md 2>/dev/null | head -150; echo done", "grep -n house CLAUDE.md", "head -5 docs/PLAN.md",

@@ -1,0 +1,65 @@
+{
+  "name": "Codex-Builder",
+  "title": "Codex-Builder",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "codex_local",
+  "adapterConfig": {
+    "engine": "cli",
+    "command": "/srv/studio/bin/agent-exec",
+    "cwd": "/srv/studio/work/codex-builder",
+    "model": "gpt-6-sol",
+    "modelReasoningEffort": "medium",
+    "dangerouslyBypassApprovalsAndSandbox": false,
+    "fastMode": false,
+    "search": false,
+    "extraArgs": [
+      "-c",
+      "sandbox_workspace_write.writable_roots=[\"/srv/studio/projects\"]"
+    ],
+    "timeoutSec": 5400,
+    "graceSec": 15,
+    "instructionsFilePath": "/srv/studio/company/agents/codex-builder/AGENTS.md",
+    "instructionsRootPath": "/srv/studio/company/agents/codex-builder",
+    "instructionsEntryFile": "AGENTS.md",
+    "instructionsBundleMode": "external",
+    "env": {
+      "STUDIO_AGENT_PROVIDER": {
+        "type": "plain",
+        "value": "codex"
+      },
+      "CODEX_HOME": {
+        "type": "plain",
+        "value": "/srv/studio/data/codex-home"
+      },
+      "OPENAI_API_KEY": {
+        "type": "plain",
+        "value": ""
+      },
+      "GH_TOKEN_SITE_READ": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-ops-external>",
+        "version": "latest"
+      }
+    }
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": true
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "desiredSkills": [
+    "paperclip",
+    "studio-house-rules",
+    "routing-table",
+    "verify-handoff",
+    "qwen-job"
+  ]
+}

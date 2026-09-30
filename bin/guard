@@ -89,6 +89,8 @@ def check_protected(relpath, cwd):
 
 
 def check_main_branch(cwd, what):
+    while cwd and not os.path.isdir(cwd) and os.path.dirname(cwd) != cwd:  # a new file in a new folder
+        cwd = os.path.dirname(cwd)
     b = branch(cwd)
     if b and re.fullmatch(MAIN, b):
         block(f"{what} on '{b}'. Work on a branch agent/<issue>-<slug> in a worktree")
@@ -243,6 +245,9 @@ def protected_writes(cmd, cwd):
     return hits
 
 
+PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$", re.M)
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -257,6 +262,19 @@ def main():
             block("live Stripe key in file content")
         path = inp.get("file_path") or inp.get("notebook_path") or ""
         if path:
+            check_protected(rel(path, cwd), cwd)
+            check_main_branch(os.path.dirname(os.path.abspath(path if os.path.isabs(path) else os.path.join(cwd, path))), "editing files")
+    elif tool == "apply_patch":
+        # Codex file edits: one patch naming every file it adds, updates, deletes or moves.
+        patch = next((v for v in inp.values() if isinstance(v, str) and "*** Begin Patch" in v), "") \
+            if isinstance(inp, dict) else str(inp)
+        if not patch:
+            block("apply_patch without a readable patch")
+        added = "\n".join(l[1:] for l in patch.splitlines() if l.startswith("+"))
+        if LIVE_KEY.search(added):
+            block("live Stripe key in file content")
+        for path in PATCH_PATH.findall(patch):
+            path = path.strip()
             check_protected(rel(path, cwd), cwd)
             check_main_branch(os.path.dirname(os.path.abspath(path if os.path.isabs(path) else os.path.join(cwd, path))), "editing files")
     elif EMAIL_TOOL.search(tool) and tool.startswith("mcp__"):
