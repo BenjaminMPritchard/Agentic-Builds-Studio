@@ -43,6 +43,18 @@ class CodexExec(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY=\n", r.stdout)  # no API billing
         self.assertTrue(open(self.log).read().startswith("admit --provider codex --agent cx"))
 
+    def test_paperclips_files_in_the_codex_home_are_opened_to_the_agent_group(self):
+        home = os.path.join(self.tmp, "codex-home")
+        os.makedirs(os.path.join(home, "skills"), mode=0o700)
+        cfg = os.path.join(home, "config.toml")
+        fd = os.open(cfg, os.O_WRONLY | os.O_CREAT, 0o600)
+        os.close(fd)
+        self.env["STUDIO_CODEX_HOME"] = home
+        r = self.run_("exec", "-")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(os.stat(cfg).st_mode & 0o070, 0o060)
+        self.assertEqual(os.stat(os.path.join(home, "skills")).st_mode & 0o070, 0o070)
+
     def test_no_settings_file_is_needed_but_the_managed_limits_are(self):
         for line in ("allow_managed_hooks_only = true", 'command = "/srv/studio/bin/guard"', "multi_agent = false",
                      "multi_agent_v2 = false", 'allowed_sandbox_modes = ["read-only", "workspace-write"]'):

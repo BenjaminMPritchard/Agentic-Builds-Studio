@@ -46,6 +46,11 @@ case "$PROVIDER" in
     # Paperclip's managed Codex home is under its own home, which studio-agent cannot read: the agents share
     # the Studio's Codex home (its ChatGPT sign-in). No API key: subscription only.
     export CODEX_HOME="${STUDIO_CODEX_HOME:-/srv/studio/data/codex-home}"
+    # Paperclip writes config.toml (and skills) there before each run with owner-only modes, which studio-agent
+    # cannot read. Open paperclip's own files to the agent group; studio-agent's auth.json is not ours to touch.
+    if [ -d "$CODEX_HOME" ]; then
+      find "$CODEX_HOME" -user "$(id -un)" \( -type d -exec chmod g+rwxs {} + -o -type f -exec chmod g+rw {} + \) 2>/dev/null || true
+    fi
     unset OPENAI_API_KEY OPENAI_BASE_URL ;;
   *) refuse "unknown STUDIO_AGENT_PROVIDER '$PROVIDER'" ;;
 esac
