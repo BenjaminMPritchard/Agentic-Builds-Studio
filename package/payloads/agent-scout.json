@@ -1,0 +1,35 @@
+{
+  "name": "Scout",
+  "title": "Scout",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "claude_local",
+  "adapterConfig": {
+    "engine": "cli",
+    "command": "/srv/studio/bin/agent-exec",
+    "cwd": "/srv/studio/work/scout",
+    "model": "claude-haiku-4-5-20251001",
+    "effort": "medium",
+    "dangerouslySkipPermissions": true,
+    "maxTurnsPerRun": 80,
+    "timeoutSec": 2700,
+    "graceSec": 15,
+    "extraArgs": ["--settings", "/srv/studio/claude/scout.json"],
+    "instructionsFilePath": "/srv/studio/company/agents/scout/AGENTS.md",
+    "instructionsRootPath": "/srv/studio/company/agents/scout",
+    "instructionsEntryFile": "AGENTS.md",
+    "instructionsBundleMode": "external",
+    "env": {
+      "CLAUDE_CODE_OAUTH_TOKEN": {"type": "secret_ref", "secretId": "<claude-oauth>", "version": "latest"},
+      "GH_TOKEN_SITE_READ": {"type": "secret_ref", "secretId": "<gh-studio-ops-external>", "version": "latest"},
+      "STUDIO_AGENT_GITHUB_OWNER": {"type": "plain", "value": "BenjaminMPritchard"},
+      "CLAUDE_CODE_DISABLE_AUTO_MEMORY": {"type": "plain", "value": "1"}
+    }
+  },
+  "runtimeConfig": {
+    "heartbeat": {"enabled": false, "intervalSec": 0, "cooldownSec": 120, "maxConcurrentRuns": 1, "wakeOnDemand": true}
+  },
+  "permissions": {"canCreateAgents": false},
+  "budgetMonthlyCents": 1500,
+  "desiredSkills": ["paperclip", "studio-house-rules"]
+}

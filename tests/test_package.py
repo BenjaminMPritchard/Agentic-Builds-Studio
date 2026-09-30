@@ -6,7 +6,7 @@ p = lambda *a: os.path.join(R, *a)
 
 class Structure(unittest.TestCase):
     def test_agents_complete_and_short(self):
-        for a in ["director", "principal", "builder-1", "builder-2", "liaison", "architect", "recorder"]:
+        for a in ["director", "principal", "builder-1", "builder-2", "liaison", "architect", "recorder", "scout"]:
             for f in ("AGENTS.md", "HEARTBEAT.md", "TOOLS.md"):
                 self.assertTrue(os.path.isfile(p("agents", a, f)), f"{a}/{f}")
             self.assertLess(len(open(p("agents", a, "AGENTS.md")).read().splitlines()), 60)
@@ -27,6 +27,19 @@ class Structure(unittest.TestCase):
         for role, e in eff.items():
             self.assertEqual(e["permissions"], {"deny": s["permissions"]["deny"]}, role)
             self.assertEqual(e["hooks"], s["hooks"], role)
+
+    def test_scout_reads_and_reports_but_cannot_change_anything(self):
+        base = json.load(open(p("claude/settings.json")))
+        scout = json.load(open(p("claude/scout.json")))
+        self.assertEqual(scout["hooks"], base["hooks"])  # Guard, as for every agent
+        for rule in base["permissions"]["deny"] + ["Edit", "Write", "NotebookEdit", "Bash(git commit*)",
+                                                   "Bash(git push*)", "Bash(gh pr *)", "Bash(gh issue *)"]:
+            self.assertIn(rule, scout["permissions"]["deny"], rule)
+        a = json.load(open(p("package/payloads/agent-scout.json")))
+        self.assertEqual(a["adapterConfig"]["model"], "claude-haiku-4-5-20251001")
+        self.assertEqual(a["adapterConfig"]["command"], "/srv/studio/bin/agent-exec")  # confined
+        self.assertEqual(a["adapterConfig"]["extraArgs"], ["--settings", "/srv/studio/claude/scout.json"])
+        self.assertNotIn("GH_TOKEN", a["adapterConfig"]["env"])  # read-only: no App token override needed
 
     def test_payloads(self):
         for f in glob.glob(p("package/payloads/*.json")):
