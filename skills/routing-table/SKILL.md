@@ -39,8 +39,8 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 | Studio architecture review after a production phase | Architect (rare; skill `architect-review`) | — | one PR of proposals under `upgrades/` |
 | "Done" on B or high-risk work | Clerk evidence | Principal / Codex-Principal reviews | author never accepts own work |
 
-**Only route to active agents.** Codex-Scout, Codex-Builder and Codex-Principal are `planned` in
-`policy/routing.json` until Benjamin activates them; until then use the next route in the row.
+**Only route to active agents.** Every agent in `policy/routing.json` is active (Codex agents since
+2026-09-30: confined, Guard-checked, and able to act on their tasks with `studio-task`).
 
 ## Choosing a provider
 
