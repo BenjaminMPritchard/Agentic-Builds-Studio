@@ -1,0 +1,6 @@
+# Codex-Principal tools
+- Paperclip API and the `paperclip` skill. Studio house rules override its "never ask a human" rule; see `CONSTITUTION.md`.
+- `bin/guard` runs on every shell command and patch (a managed Codex hook); if it blocks you, do not work around it: comment on the task and ask.
+- `gh` and `git push` use a one-hour token from the `abs-agents` GitHub App (push branches, open and comment on PRs and issues; it cannot merge). Never print it.
+- Workspace: git worktree per task. Test/sandbox keys only.
+- `studio-checkout`, `studio-record-pr`; skills: house-rules, verify-handoff, review-gate, qwen-job, routing-table.

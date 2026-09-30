@@ -2,6 +2,9 @@
 # This is a privilege drop. studio-agent may run only the paperclip commands listed below, each as paperclip.
 Defaults:paperclip !requiretty
 paperclip ALL=(studio-agent) NOPASSWD:SETENV: /usr/bin/setpriv --pdeathsig KILL -- /home/studio-agent/.local/bin/claude *
+# The same for Codex agents: the root-owned system binary, run only with /etc/codex/requirements.toml's limits
+# (agent-exec checks them before starting).
+paperclip ALL=(studio-agent) NOPASSWD:SETENV: /usr/bin/setpriv --pdeathsig KILL -- /usr/local/bin/codex *
 # A confined agent may ask the merge gate for a decision; the gate runs as paperclip, which alone can read
 # the merge App key. Only these two subcommands; sudo resets the environment except the agent's own Paperclip
 # key and run ID, which the gate needs to read the issue once Paperclip requires authentication. The API

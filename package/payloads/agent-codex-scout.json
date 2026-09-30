@@ -1,0 +1,59 @@
+{
+  "name": "Codex-Scout",
+  "title": "Codex-Scout",
+  "role": "engineer",
+  "reportsTo": "<director>",
+  "adapterType": "codex_local",
+  "adapterConfig": {
+    "engine": "cli",
+    "command": "/srv/studio/bin/agent-exec",
+    "cwd": "/srv/studio/work/codex-scout",
+    "model": "gpt-6-luna",
+    "modelReasoningEffort": "medium",
+    "dangerouslyBypassApprovalsAndSandbox": false,
+    "fastMode": false,
+    "search": false,
+    "extraArgs": [],
+    "timeoutSec": 2700,
+    "graceSec": 15,
+    "instructionsFilePath": "/srv/studio/company/agents/codex-scout/AGENTS.md",
+    "instructionsRootPath": "/srv/studio/company/agents/codex-scout",
+    "instructionsEntryFile": "AGENTS.md",
+    "instructionsBundleMode": "external",
+    "env": {
+      "STUDIO_AGENT_PROVIDER": {
+        "type": "plain",
+        "value": "codex"
+      },
+      "CODEX_HOME": {
+        "type": "plain",
+        "value": "/srv/studio/data/codex-home"
+      },
+      "OPENAI_API_KEY": {
+        "type": "plain",
+        "value": ""
+      },
+      "GH_TOKEN_SITE_READ": {
+        "type": "secret_ref",
+        "secretId": "<gh-studio-ops-external>",
+        "version": "latest"
+      }
+    }
+  },
+  "runtimeConfig": {
+    "heartbeat": {
+      "enabled": false,
+      "intervalSec": 0,
+      "cooldownSec": 120,
+      "maxConcurrentRuns": 1,
+      "wakeOnDemand": true
+    }
+  },
+  "permissions": {
+    "canCreateAgents": false
+  },
+  "desiredSkills": [
+    "paperclip",
+    "studio-house-rules"
+  ]
+}
