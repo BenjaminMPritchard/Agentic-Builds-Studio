@@ -79,7 +79,7 @@ class CodexExec(unittest.TestCase):
 
     def test_the_guard_hook_covers_codex_shell_and_patch_tools(self):
         text = open(REQUIREMENTS).read()
-        self.assertIn('matcher = "^(Bash|apply_patch|Edit|Write|mcp__.*)$"', text)
+        self.assertIn('matcher = ".*"', text)
 
 
 class CodexSudo(unittest.TestCase):

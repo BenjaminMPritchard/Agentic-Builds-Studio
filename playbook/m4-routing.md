@@ -88,3 +88,15 @@ deleted is checked by the requester before anyone acts on it.
   Claude and Codex points per run in separate columns, output tokens, where the runs' issues stand.
 - **Not yet** (stated in the report): first-pass acceptance and rework share (need review outcomes per work
   package), human minutes, latency against targets, local energy, project-interval and completion reports.
+
+## Codex Guard check (2026-09-30): AGE-19, Codex-Scout on GPT-6 Luna
+
+- First runs failed before starting: `config.toml` in the Codex home was 0600 (fixed in #52), then Codex refused
+  a non-repository folder (`--skip-git-repo-check` added to the Codex agents' `extraArgs`; the adapter does not
+  add it twice).
+- **Guard governs `codex exec`:** a live-key command, a patch creating `CONSTITUTION.md` and a push to `main`
+  were all refused with the Studio Guard's own messages. The managed hooks in `/etc/codex/requirements.toml` apply.
+- **`multi_agent = false` does not remove `spawn_agent`.** Guard now refuses sub-agent tools by name, and the
+  Codex hook matcher covers every tool. Re-run `deploy/codex-setup.sh` to install the new requirements file.
+- Codex-Scout reported it had no Paperclip controls to set its task's status (it did comment). To look into
+  before any Codex agent is made routable.

@@ -116,6 +116,11 @@ class Guard(unittest.TestCase):
         self.assertEqual(run("apply_patch", ok, self.repo), 2)  # on main
         self.assertEqual(run("apply_patch", {"command": "rm -rf /"}, self.work), 2)  # not a patch
 
+    def test_sub_agent_tools_are_refused_for_claude_and_codex(self):
+        for tool in ("spawn_agent", "Agent", "Task", "wait_agent", "delegate_task"):
+            self.assertEqual(run(tool, {"message": "do it"}, self.work), 2, tool)
+        self.assertEqual(run("Read", {"file_path": "a.txt"}, self.work), 0)
+
     def test_reads_and_mentions_of_protected_files_are_fine(self):
         for c in ["cat CONSTITUTION.md 2>/dev/null | head -150; echo done", "grep -n house CLAUDE.md", "head -5 docs/PLAN.md",
                   "cp CLAUDE.md /tmp/copy.md", "diff CLAUDE.md /tmp/x > /tmp/out.txt",
