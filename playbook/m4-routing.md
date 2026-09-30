@@ -60,3 +60,15 @@ version, then compare on real tasks before anything else changes.
 Routes are hypotheses. The usage-cap ledger already records each agent's measured cost per run; after a few
 runs per agent, compare routes on accepted work per point of allowance (research 10–11) and change the table
 with Benjamin's approval.
+
+## First Scout run (2026-09-30): AGE-18, branch triage
+
+Run `388b38ef`, Haiku 4.5, about 2.5 minutes, admitted by the usage caps, in a Mothers project worktree under
+`/srv/studio/projects/mothers` (the first run to use it). Useful in shape, wrong on its headline: it called
+`claude/affectionate-edison-hv676j` "critical bug fixes, app crashes without them, none in main", but the
+bugs were in that branch's own ShopConfig code, which never reached `main`. Checking at the source caught it,
+as research 7.1 requires of the requester. It also marked its task `done` instead of handing it back, wrote
+no `evidence` document, and skipped the Studio-repo comparison. Instructions now say: write the document,
+hand back as `in_review`, never `done`; check claims about `main` against `main`; fetch the other repository
+when asked to compare. Lesson for routing: a scout's finding that would cause code to be ported, merged or
+deleted is checked by the requester before anyone acts on it.
