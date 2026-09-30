@@ -14,8 +14,12 @@
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run it with sudo" >&2; exit 1; }
 HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
-SRC="${CODEX_SOURCE:-$(sudo -u "${SUDO_USER:-benjamin}" -i sh -c 'readlink -f "$(command -v codex)"')}"
+# The real binary, not a version-manager launcher: `command -v codex` in a login shell finds mise's shim,
+# which would run `mise use -g codex` and whatever version that resolves, as whichever user runs it.
+SRC="${CODEX_SOURCE:-$(sudo -u "${SUDO_USER:-benjamin}" -i sh -c 'readlink -f "$(mise which codex 2>/dev/null || command -v codex)"')}"
 [ -x "$SRC" ] || { echo "no Codex binary found for ${SUDO_USER:-benjamin}; set CODEX_SOURCE=/path/to/codex" >&2; exit 1; }
+[ "$(head -c 4 "$SRC" | od -An -c | tr -d ' ')" = '177ELF' ] \
+  || { echo "$SRC is not a compiled Codex binary (a launcher script?); set CODEX_SOURCE=/path/to/codex" >&2; exit 1; }
 install -o root -g root -m 0755 "$SRC" /usr/local/bin/codex
 [ -x "$(dirname "$SRC")/codex-code-mode-host" ] && install -o root -g root -m 0755 "$(dirname "$SRC")/codex-code-mode-host" /usr/local/bin/codex-code-mode-host
 install -D -o root -g root -m 0644 "$HERE/codex/requirements.toml" /etc/codex/requirements.toml
@@ -32,6 +36,7 @@ install -o root -g root -m 0440 "$TMP" /etc/sudoers.d/studio-agent
 rm -f "$TMP"
 
 # Checks
+[ "$(head -c 4 /usr/local/bin/codex | od -An -c | tr -d ' ')" = '177ELF' ] && echo "ok: /usr/local/bin/codex is the binary"
 /usr/local/bin/codex --version
 sudo -u studio-agent -H env CODEX_HOME="$HOME_DIR" /usr/local/bin/codex features list 2>/dev/null \
   | awk '$1=="multi_agent"||$1=="multi_agent_v2"||$1=="hooks"{print "  " $1 " " $NF}'
