@@ -110,3 +110,13 @@ deleted is checked by the requester before anyone acts on it.
   sandbox mounted `/srv/studio/projects/mothers/repo/.git` read-only (no worktree, no commits), and `gh` read
   Paperclip's `GH_CONFIG_DIR` (`/home/paperclip/.config/gh`, unreadable). Codex-Builder and Codex-Principal are
   back to `planned` until both are fixed; Codex-Scout stays active. 7a returns to the Claude Principal.
+- Fix for both (IMPLEMENTED, not yet verified in a live run): `agent-exec` extends a Codex agent's
+  `sandbox_workspace_write.writable_roots` in place with every repository's `.git` up to three levels below its
+  roots (`/srv/studio/projects/mothers/repo/.git`). Codex keeps `<root>/.git` read-only and follows a worktree's
+  gitdir pointer to it, but a `.git` named as a writable root of its own is writable: checked with
+  `codex sandbox` (no model use) for a commit in the repository and in a worktree. `agent-exec` also sets
+  `GH_CONFIG_DIR=/home/studio-agent/.config/gh` for every run. The builders go back to `active` after one real
+  Codex-Builder task commits and opens its PR.
+- Known, not new: the `studio` group can already write every project's `.git` (hooks, config), for Claude agents
+  too. Paperclip runs git in those repositories as `paperclip` (workspace worktrees), so a planted hook or
+  filter would run as `paperclip`. Tracked separately; this fix does not widen it.
