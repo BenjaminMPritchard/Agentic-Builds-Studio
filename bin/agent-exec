@@ -57,9 +57,28 @@ case "$PROVIDER" in
           && printf '%s\n' "$FIXED" > "$CODEX_HOME/config.toml"
       fi
     fi
-    unset OPENAI_API_KEY OPENAI_BASE_URL ;;
+    unset OPENAI_API_KEY OPENAI_BASE_URL
+    # Codex's workspace-write sandbox mounts <root>/.git read-only under each writable root (and follows a
+    # worktree's gitdir pointer to it), so a builder could edit files but never commit. A repository's .git named
+    # as a writable root of its own is writable, so each writable_roots list given is extended in place with every
+    # repository's .git found up to three levels below its roots (projects/<name>/repo/.git).
+    NEW=()
+    for a in "$@"; do
+      case "$a" in sandbox_workspace_write.writable_roots=*)
+        LIST=()
+        while IFS= read -r r; do
+          LIST+=("\"$r\"")
+          while IFS= read -r g; do LIST+=("\"$g\""); done < <(find "$r" -mindepth 1 -maxdepth 3 -name .git -type d -prune 2>/dev/null | sort)
+        done < <(printf '%s\n' "${a#*=}" | grep -o '"[^"]*"' | tr -d '"')
+        a="sandbox_workspace_write.writable_roots=[$(IFS=,; echo "${LIST[*]}")]" ;;
+      esac
+      NEW+=("$a")
+    done
+    set -- "${NEW[@]}" ;;
   *) refuse "unknown STUDIO_AGENT_PROVIDER '$PROVIDER'" ;;
 esac
+# gh reads its settings from GH_CONFIG_DIR, which may point into Paperclip's home (unreadable to studio-agent).
+export GH_CONFIG_DIR="/home/$AGENT_USER/.config/gh"
 if [ -e "$APP_CONFIG" ]; then
   TOKEN="$("$HERE/agent-github-token" "$OWNER")" || { echo "agent-exec: no GitHub App token for $OWNER; not starting" >&2; exit 3; }
   GRANT="$("$HERE/agent-github-token" --new-grant "$OWNER")" || { echo "agent-exec: no GitHub grant for $OWNER; not starting" >&2; exit 3; }
@@ -90,6 +109,7 @@ if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; the
 fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
+  echo "GH_CONFIG_DIR=$GH_CONFIG_DIR"
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi
   if [ -n "${STUDIO_AGENT_GITHUB_GRANT:-}" ]; then echo "GRANT=$STUDIO_AGENT_GITHUB_GRANT"; echo "CREDENTIAL=$GIT_CONFIG_VALUE_1"; fi
   if [ "$PROVIDER" = codex ]; then echo "CODEX_HOME=$CODEX_HOME"; echo "OPENAI_API_KEY=${OPENAI_API_KEY:+set}"; fi

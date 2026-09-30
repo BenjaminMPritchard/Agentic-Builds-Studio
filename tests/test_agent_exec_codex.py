@@ -1,6 +1,7 @@
 """agent-exec runs Codex agents only with the Studio's managed Codex limits in place."""
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -42,6 +43,31 @@ class CodexExec(unittest.TestCase):
         self.assertIn("CODEX_HOME=/srv/studio/data/codex-home\n", r.stdout)  # not Paperclip's unreadable home
         self.assertIn("OPENAI_API_KEY=\n", r.stdout)  # no API billing
         self.assertTrue(open(self.log).read().startswith("admit --provider codex --agent cx"))
+
+    def test_each_repositorys_git_folder_under_the_writable_roots_is_made_writable(self):
+        # Codex mounts <root>/.git read-only; a .git named as a root of its own is writable, so builders can commit.
+        projects = os.path.join(self.tmp, "projects")
+        os.makedirs(os.path.join(projects, "mothers", "repo", ".git", "objects"))
+        os.makedirs(os.path.join(projects, "mothers", "worktrees", "AGE-1"))
+        open(os.path.join(projects, "mothers", "worktrees", "AGE-1", ".git"), "w").close()  # a worktree's pointer file
+        roots = f'sandbox_workspace_write.writable_roots=["{projects}"]'
+        r = self.run_("exec", "-c", roots, "--skip-git-repo-check", "-")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = shlex.split(r.stdout.splitlines()[0])
+        git = os.path.join(projects, "mothers", "repo", ".git")
+        self.assertEqual(argv[argv.index("-c", argv.index("exec")) + 1],
+                         f'sandbox_workspace_write.writable_roots=["{projects}","{git}"]')
+        self.assertEqual(argv[-2:], ["--skip-git-repo-check", "-"])  # extended in place, nothing appended
+
+    def test_gh_reads_the_agents_own_settings_not_paperclips(self):
+        self.env["GH_CONFIG_DIR"] = "/home/paperclip/.config/gh"
+        r = self.run_("exec", "-")
+        self.assertIn("GH_CONFIG_DIR=/home/studio-agent/.config/gh\n", r.stdout)
+
+    def test_an_agent_without_writable_roots_gets_none(self):
+        r = self.run_("exec", "--skip-git-repo-check", "-")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("writable_roots", r.stdout)
 
     def test_paperclips_files_in_the_codex_home_are_opened_to_the_agent_group(self):
         home = os.path.join(self.tmp, "codex-home")
