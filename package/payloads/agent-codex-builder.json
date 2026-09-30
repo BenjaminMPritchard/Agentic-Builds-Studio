@@ -16,7 +16,9 @@
     "extraArgs": [
       "-c",
       "sandbox_workspace_write.writable_roots=[\"/srv/studio/projects\"]",
-      "--skip-git-repo-check"
+      "--skip-git-repo-check",
+      "-c",
+      "shell_environment_policy.ignore_default_excludes=true"
     ],
     "timeoutSec": 5400,
     "graceSec": 15,

@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""studio-task: act on a Paperclip task from an agent run, with the run's own key (never typed in a command).
+
+  studio-task comment  ISSUE_ID "text"          post a comment
+  studio-task status   ISSUE_ID STATUS          todo | in_progress | in_review | blocked | done
+  studio-task handback ISSUE_ID ["comment"]     in_review, assigned back to whoever created the task
+  studio-task doc      ISSUE_ID KEY FILE        write FILE as the task's document KEY (markdown)
+
+For agents whose tools do not include Paperclip's issue actions (Codex). Paperclip still decides what the run
+may do; this only makes the calls.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib.paperclip import ApiError, Paperclip  # noqa: E402
+
+STATUSES = {"todo", "in_progress", "in_review", "blocked", "done"}
+USAGE = __doc__.split("\n\n")[1]
+
+
+def main(argv):
+    if len(argv) < 3:
+        print(USAGE, file=sys.stderr)
+        return 2
+    action, issue, rest = argv[1], argv[2], argv[3:]
+    if not os.environ.get("PAPERCLIP_API_KEY"):
+        print("studio-task: PAPERCLIP_API_KEY is not set in this run", file=sys.stderr)
+        return 3
+    pc = Paperclip()
+    try:
+        if action == "comment" and len(rest) == 1:
+            pc.comment(issue, rest[0])
+        elif action == "status" and len(rest) == 1 and rest[0] in STATUSES:
+            pc.patch_issue(issue, status=rest[0])
+        elif action == "handback" and len(rest) <= 1:
+            task = pc.get_issue(issue)
+            back = ({"assigneeAgentId": task["createdByAgentId"]} if task.get("createdByAgentId")
+                    else {"assigneeAgentId": None, "assigneeUserId": task.get("createdByUserId")})
+            pc.patch_issue(issue, status="in_review", **back, **({"comment": rest[0]} if rest else {}))
+        elif action == "doc" and len(rest) == 2:
+            with open(rest[1]) as f:
+                pc.put_document(issue, rest[0], f.read())
+        else:
+            print(USAGE, file=sys.stderr)
+            return 2
+    except ApiError as e:
+        print(f"studio-task: Paperclip refused: {e}", file=sys.stderr)
+        return 1
+    print(f"ok: {action} {issue}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -14,7 +14,9 @@
     "fastMode": false,
     "search": false,
     "extraArgs": [
-      "--skip-git-repo-check"
+      "--skip-git-repo-check",
+      "-c",
+      "shell_environment_policy.ignore_default_excludes=true"
     ],
     "timeoutSec": 2700,
     "graceSec": 15,
