@@ -106,3 +106,7 @@ deleted is checked by the requester before anyone acts on it.
   `http_headers`), so the tools had no credentials. `agent-exec` now renames the key in `[mcp_servers.*]` tables.
 - Final check after #56: Codex-Scout commented on AGE-19 and handed it back to Benjamin with `studio-task`.
   **Codex-Scout, Codex-Builder and Codex-Principal are active in the routing table from 2026-09-30.**
+- First real Codex task (AGE-6, Phase 7a, Codex-Principal): stopped before any change and handed back. Codex's
+  sandbox mounted `/srv/studio/projects/mothers/repo/.git` read-only (no worktree, no commits), and `gh` read
+  Paperclip's `GH_CONFIG_DIR` (`/home/paperclip/.config/gh`, unreadable). Codex-Builder and Codex-Principal are
+  back to `planned` until both are fixed; Codex-Scout stays active. 7a returns to the Claude Principal.
