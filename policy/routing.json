@@ -1,0 +1,45 @@
+{
+  "_comment": "The Studio routing table (machine-readable). Source: codex-claude-paperclip-model-routing-research.md sections 4, 6, 7 and 8, Benjamin's source of truth. Every route is a starting hypothesis until measured (research 7.2); the usage-cap ledger records each agent's measured cost per run. The Director and Principal read skills/routing-table/SKILL.md, which is generated from the same decisions. Changing an agent's model, adding an agent or making a planned agent active needs Benjamin's approval.",
+  "version": 1,
+  "agents": {
+    "Clerk":        {"provider": "script", "status": "active", "use": "polling, gates, CI and check status, diffs, counts, cost and usage reports"},
+    "Worker":       {"provider": "local", "model": "qwen3.5:4b", "status": "active", "use": "bounded jobs from qwen/jobs with a passing golden set (qwen-job skill); no cloud usage"},
+    "Scout":        {"provider": "claude", "model": "claude-haiku-4-5-20251001", "effort": "default", "status": "planned", "use": "exhaustive but bounded doing: repo inventories, evidence collection, extraction beyond the Worker's context; returns an evidence packet"},
+    "Codex-Scout":  {"provider": "codex", "model": "gpt-6-luna", "effort": "medium", "status": "planned", "use": "same work as Scout, on the Codex allowance"},
+    "Liaison":      {"provider": "claude", "model": "claude-sonnet-5", "effort": "low", "status": "active", "use": "client and Board drafts, the question register"},
+    "Recorder":     {"provider": "claude", "model": "claude-sonnet-5", "effort": "low", "status": "active", "use": "journals, metrics and lessons in the Studio repo"},
+    "Builder-1":    {"provider": "claude", "model": "claude-sonnet-5", "effort": "medium", "status": "active", "use": "routine and multi-file implementation, UI, SEO, docs, tests"},
+    "Builder-2":    {"provider": "claude", "model": "claude-sonnet-5", "effort": "medium", "status": "active", "use": "as Builder-1; parallel independent work"},
+    "Codex-Builder":{"provider": "codex", "model": "gpt-6-sol", "effort": "medium", "status": "planned", "use": "implementation baseline on the Codex allowance: routine and multi-file changes, reviews"},
+    "Principal":    {"provider": "claude", "model": "claude-opus-5", "effort": "high", "status": "active", "use": "high-risk engineering, difficult debugging, qualified independent review"},
+    "Codex-Principal": {"provider": "codex", "model": "gpt-6-astra", "effort": "high", "status": "planned", "use": "hard judgement and difficult failures on the Codex allowance; independent review of Claude-built high-risk work"},
+    "Architect":    {"provider": "claude", "model": "claude-opus-5", "effort": "xhigh", "status": "active", "use": "Studio architecture review after a production phase (architect-review skill); rare"},
+    "Director":     {"provider": "claude", "model": "claude-opus-5", "effort": "medium", "status": "active", "use": "plans, task packets, routing, acceptance, disputes; never implementation"}
+  },
+  "caps": {
+    "claude": {"five_hour": 12, "week": 80},
+    "codex": {"five_hour": 15, "week": 80},
+    "_note": "Enforced by bin/studio-quota in agent-exec (policy/quota.json). Never add Claude and Codex percentages together; a route that saves Claude by spending spare Codex allowance raises throughput without being 'cheaper'."
+  },
+  "routes": [
+    {"class": "monitoring", "examples": "checks, counts, inventories of files, clerical totals, exit codes", "first": ["Clerk"], "fallback": [], "escalate_when": "a new anomaly needs interpretation", "accept": "script output"},
+    {"class": "bounded-extraction", "examples": "summaries, exact quotes, classification into known categories, dedupe, inbox triage", "first": ["Worker"], "fallback": ["Scout", "Codex-Scout"], "escalate_when": "input exceeds the job's limit, the job is not enabled, or the Worker hands it back", "accept": "schema and source checks (the job's own checks)"},
+    {"class": "exhaustive-research", "examples": "repo inventory, 'find every place that', dependency audit, evidence collection across many files", "first": ["Scout", "Codex-Scout"], "fallback": ["Builder-1"], "escalate_when": "coverage gaps or contradictions the scout cannot resolve", "accept": "evidence packet with a coverage manifest; the requester checks high-risk findings at the source"},
+    {"class": "requirements-architecture", "examples": "phase plans, trade-offs, acceptance criteria, stack decisions", "first": ["Director"], "fallback": ["Principal", "Codex-Principal"], "escalate_when": "a consequential or ambiguous decision: Board", "accept": "explicit trade-offs and acceptance criteria; B plans need Benjamin's approval"},
+    {"class": "routine-change", "examples": "a change following an established pattern, copy edits, config, small fixes", "first": ["Builder-1", "Builder-2", "Codex-Builder"], "fallback": ["Principal"], "escalate_when": "the change stops being routine or leaves its allowed paths", "accept": "targeted tests, make check, diff within allowed paths"},
+    {"class": "multi-file-feature", "examples": "a feature or integration across several files", "first": ["Builder-1", "Codex-Builder"], "fallback": ["Principal", "Codex-Principal"], "escalate_when": "uncertain contracts, state or failure handling", "accept": "tests for the new behaviour, make check, relevant review"},
+    {"class": "ui-visual", "examples": "page styling, responsive layout, visual polish", "first": ["Builder-1", "Principal"], "fallback": ["Codex-Builder"], "escalate_when": "the look is not decided (that is Benjamin's), or rendered evidence fails", "accept": "screenshots at phone and desktop width, interaction check, axe; a passing build alone is not enough"},
+    {"class": "difficult-debugging", "examples": "unfamiliar root cause, migration, incident diagnosis, repeated red checks", "first": ["Principal", "Codex-Principal"], "fallback": [], "escalate_when": "no evidence-backed diagnosis after one bounded attempt: Director", "accept": "a reproduced cause and a test that fails before the fix"},
+    {"class": "high-risk", "examples": "auth, payments, permissions, refunds, data loss, security settings", "first": ["Principal"], "fallback": ["Codex-Principal"], "review": ["Codex-Principal", "Builder-1"], "escalate_when": "any change to approval class, spending, data handling or customer policy", "accept": "risk-specific tests, independent review by a different agent, rollback evidence"},
+    {"class": "client-reply", "examples": "routine reply to Terrie or a client", "first": ["Liaison"], "fallback": [], "escalate_when": "commitments, prices, policy or anything ambiguous: Director, then Board", "accept": "verified facts; sending needs an accepted human-only confirmation"},
+    {"class": "records", "examples": "journal, metrics, lessons", "first": ["Recorder"], "fallback": ["Worker"], "escalate_when": "facts conflict", "accept": "sources cited"},
+    {"class": "completion-claim", "examples": "'done' on any B or high-risk task", "first": ["Clerk"], "fallback": [], "review": ["Principal", "Codex-Principal"], "escalate_when": "a check is missing", "accept": "deterministic evidence plus a qualified reviewer who is not the author; incomplete while checks are missing"}
+  ],
+  "rules": {
+    "choose_provider": "Among the first-route agents that are active, prefer the provider with more headroom in the digest's Usage line; never route to a planned agent. Do not pick a stronger model because the task is long; pick by uncertainty and consequence.",
+    "retry": "One bounded correction for a clear, local error. The same failure again means diagnosis or escalation, never a third try. Transport failures (network, rate limits) are retried with backoff and logged separately.",
+    "parallel": "Parallelise only independent work with stable interfaces, each in its own worktree; keep dependent schema, API and implementation work in order.",
+    "no_subagents": "Agents do not start sub-agents (Constitution). Delegation is a Paperclip subtask with its own packet, so it is capped, attributed and visible.",
+    "evidence_packet": ["task_id", "repo_commit_or_source_snapshot", "scope_requested", "scope_checked", "items_checked", "findings", "negative_searches", "commands_and_results", "unknowns_and_contradictions", "coverage_gaps", "next_required_action"]
+  }
+}
