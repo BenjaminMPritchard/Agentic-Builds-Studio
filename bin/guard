@@ -133,17 +133,60 @@ def confirmation_accepted():
         return False
 
 
+SHELL_WRAPPER = re.compile(r"""^[({\s]*(?:\S*/)?(?:ba|z|da)?sh\s+-l?c\s+["']?""")
+UNKNOWN = object()  # a folder the Guard cannot work out (cd $VAR, cd -, cd ~user)
+
+
+def segment(seg):
+    """One command of a compound line, without a leading subshell, brace or `bash -lc "` wrapper."""
+    s = SHELL_WRAPPER.sub("", seg.strip())
+    return s.lstrip("({ ").rstrip(")}\"' ").strip()
+
+
+def cd_target(s, here):
+    """Where `cd ...` leaves the shell: the folder, UNKNOWN, or `here` when cd would fail and not move."""
+    try:
+        args = shlex.split(s)[1:]
+    except ValueError:
+        return UNKNOWN
+    args = [a for a in args if a not in ("-P", "-L", "--")]
+    if len(args) != 1 or args[0] == "-" or re.search(r"[$`*?]", args[0]) or args[0].startswith("~"):
+        return UNKNOWN
+    if here is UNKNOWN and not os.path.isabs(args[0]):
+        return UNKNOWN
+    d = os.path.normpath(args[0] if os.path.isabs(args[0]) else os.path.join(here or ".", args[0]))
+    return d if os.path.isdir(d) else here
+
+
+def git_dir(s, here):
+    """The folder a git command acts in: its -C folder, else where the shell is."""
+    m = re.match(r"(?:\S+=\S+\s+)*git\s+-C\s+(\S+)", s)
+    if not m:
+        return here
+    d = m.group(1).strip("\"'")
+    if re.search(r"[$`*?]", d) or d.startswith("~") or (here is UNKNOWN and not os.path.isabs(d)):
+        return UNKNOWN
+    return os.path.normpath(d if os.path.isabs(d) else os.path.join(here or ".", d))
+
+
 def check_bash(cmd, cwd):
     if LIVE_KEY.search(cmd):
         block("live Stripe key in command")
+    here = cwd  # follows `cd` through the line, so a commit is checked on the branch it lands on
     for seg in re.split(r"&&|\|\||;|\n|\|", cmd):
-        s = seg.strip()
+        s = segment(seg)
+        if re.match(r"(?:cd|pushd)\b", s):
+            here = cd_target(s, here)
+            continue
+        gd = git_dir(s, here)
+        if gd is UNKNOWN and re.match(r"(?:\S+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?(commit|merge|rebase|cherry-pick|reset|push)\b", s):
+            block("git after a cd or -C the Guard cannot follow; use a literal path (cd /path/to/worktree && git ...)")
         if re.match(r"(?:\S+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?push\b", s):
             if re.search(r"(--force\b|--force-with-lease|--force-if-includes|\s-f\b|\s\+\S)", s):
                 block("force push")
             if re.search(rf"(\s|:|/|^){MAIN}(\s|$)", s) or re.search(rf"refs/heads/{MAIN}", s):
                 block("push to main/master")
-            if not re.search(r"\S+\s+\S+", s.split("push", 1)[1]) and (branch(cwd) or "") in ("main", "master"):
+            if not re.search(r"\S+\s+\S+", s.split("push", 1)[1]) and (branch(gd) or "") in ("main", "master"):
                 block("push from main")
         if re.match(r"(?:\S+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?clone\b", s) and re.search(r"/srv/studio/company", s):
             block("clone the studio repo from GitHub: studio-checkout BenjaminMPritchard/Agentic-Builds-Studio")
@@ -155,8 +198,8 @@ def check_bash(cmd, cwd):
             why = merge_allowed(s, cwd)
             if why:
                 block(f"merge refused: {why}")
-        if re.match(r"(?:\S+=\S+\s+)*git\s+(commit|merge|rebase|cherry-pick|reset)\b", s):
-            check_main_branch(cwd, "git " + s.split()[1])
+        if re.match(r"(?:\S+=\S+\s+)*git\s+(?:-C\s+\S+\s+)?(commit|merge|rebase|cherry-pick|reset)\b", s):
+            check_main_branch(gd, "git " + re.sub(r"^.*?git\s+(?:-C\s+\S+\s+)?", "", s).split()[0])
         if re.match(r"(?:\S+=\S+\s+)*(make\s+e2e|npx\s+playwright|playwright\s+test)", s):
             block("e2e runs only through /srv/studio/bin/studio-e2e")
     if EMAIL_SEND.search(cmd) and not confirmation_accepted():
@@ -257,6 +300,10 @@ def main():
     except Exception:
         sys.exit(0)
     tool, inp, cwd = data.get("tool_name", ""), data.get("tool_input") or {}, data.get("cwd") or os.getcwd()
+    # Codex's shell tool can name the folder a command runs in; the session's folder is then not where it runs.
+    wd = next((inp.get(k) for k in ("workdir", "cwd", "working_directory") if isinstance(inp, dict) and inp.get(k)), None)
+    if isinstance(wd, str):
+        cwd = os.path.normpath(wd if os.path.isabs(wd) else os.path.join(cwd, wd))
     if SUBAGENT_TOOL.search(tool):
         block(f"{tool}: agents do not start sub-agents; parallel work goes through Paperclip subtasks")
     if tool == "Bash":
