@@ -49,11 +49,12 @@ no `/code-review`, and sub-agents are off).
 Claude then creates the four agents paused, checks `studio-quota status --provider codex`, and marks them
 active in `policy/routing.json` once the first Guard check passes.
 
-## 4. Model versions (decision for Benjamin)
+## 4. Model versions — done 2026-09-30
 
 Director, Principal and Architect run `claude-opus-5`; the research's shortlist names `claude-opus-5-5`,
-which needs Claude Code 2.1.280 or later for `studio-agent`. Proposal: move them after checking that
-version, then compare on real tasks before anything else changes.
+which needs Claude Code 2.1.280 or later for `studio-agent`. Checked: `studio-agent` runs 2.1.283 (from Scout's run
+log). Benjamin approved; the three agents were moved to `claude-opus-5-5` with a `model`-only update (Paperclip merges
+it and keeps hidden secrets); effort levels unchanged.
 
 ## 5. Calibration
 
