@@ -203,11 +203,15 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.estimate(self.l, "rec", POLICY), POLICY["min_job"])
         self.assertEqual(quota.estimate(self.l, "other", POLICY), POLICY["default_job"])
 
-    def test_a_run_whose_process_is_gone_ends_at_the_next_reading_and_is_counted_until_then(self):
+    def test_a_run_whose_process_is_gone_is_not_charged_with_later_usage(self):
+        # 2026-09-30: a Paperclip restart killed a run and its release watcher; hours of Benjamin's own use
+        # were then charged to it at the next admission.
         tok, _ = self.admit(reading(10, 10), pid=999)  # pid 999 is "gone" in these tests
-        tok2, _ = self.admit(reading(14, 10))
+        tok2, _ = self.admit(reading(25, 12))
         self.assertNotIn(tok, self.l["active"])
-        self.assertEqual(self.l["samples"]["rec"], [[4.0, 0.0]])
+        self.assertEqual(self.l["samples"]["rec"], [[0.0, 0.0]])
+        self.assertEqual(quota.status(self.l, reading(25, 12), POLICY)["studio"], {"five_hour": 0.0, "week": 0.0})
+        self.assertEqual(self.l["finished"][0]["ended"], "process gone")
         self.assertIn(tok2, self.l["active"])
 
     def test_release_without_a_reading_keeps_the_run_counted(self):
