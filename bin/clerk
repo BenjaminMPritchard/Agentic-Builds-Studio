@@ -9,9 +9,18 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 from lib.clerk import Clerk  # noqa: E402
-from lib.paperclip import Paperclip  # noqa: E402
+from lib.paperclip import Paperclip, board_key  # noqa: E402
 
 E = os.environ.get
+# The Clerk acts as its own Paperclip service user (operator role) when this key exists: as an agent, Paperclip
+# lets it change only its own tasks. The key file must be the running user's and mode 0600, or the Clerk stops.
+CLERK_KEY = E("STUDIO_CLERK_KEY_FILE", "/srv/studio/data/clerk/board-key")
+
+
+def client():
+    if os.path.exists(CLERK_KEY):
+        return Paperclip(key=board_key(CLERK_KEY), run_id=False)
+    return Paperclip()
 
 
 def main(argv):
@@ -19,7 +28,7 @@ def main(argv):
     if not E("STUDIO_COMPANY_ID"):
         print("STUDIO_COMPANY_ID is not set", file=sys.stderr)
         return 1
-    c = Clerk(Paperclip(), E("STUDIO_COMPANY_ID"), E("STUDIO_DATA", "/srv/studio/data"),
+    c = Clerk(client(), E("STUDIO_COMPANY_ID"), E("STUDIO_DATA", "/srv/studio/data"),
               dry_run=E("CLERK_DRY_RUN") == "1", director_id=E("STUDIO_DIRECTOR_ID"),
               principal_id=E("STUDIO_PRINCIPAL_ID"), recorder_id=E("STUDIO_RECORDER_ID"),
               deploy_repo=(E("STUDIO_DEPLOY_REPO", "/srv/studio/company") if E("STUDIO_AUTODEPLOY") == "1" else None),
