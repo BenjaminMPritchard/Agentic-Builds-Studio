@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Clerk's command. `clerk tick` (every 10 min), `clerk weekly`.
+"""The Clerk's command. `clerk tick` (every 10 min), `clerk weekly`, `clerk report` (efficiency records).
 
 Env: STUDIO_COMPANY_ID (required), STUDIO_DATA, STUDIO_DIRECTOR_ID, STUDIO_PRINCIPAL_ID,
 STUDIO_RECORDER_ID, STUDIO_AUTODEPLOY=1 (pull+test+fast-forward /srv/studio/company from origin main; STUDIO_DEPLOY_REPO, STUDIO_INFRA_PROJECT_ID for skill rescans), CLERK_DRY_RUN=1 (report only: writes digests and logs, wakes no one).
@@ -28,8 +28,10 @@ def main(argv):
         c.tick()
     elif cmd == "weekly":
         print(c.weekly())
+    elif cmd == "report":
+        print(c.report())
     else:
-        print("usage: clerk tick|weekly", file=sys.stderr)
+        print("usage: clerk tick|weekly|report", file=sys.stderr)
         return 2
     return 0
 

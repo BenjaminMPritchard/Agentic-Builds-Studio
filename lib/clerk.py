@@ -12,14 +12,15 @@ import re
 import subprocess
 import time
 
-from lib import deploy, github_app, merge_gate, quota
+from lib import deploy, github_app, merge_gate, quota, records
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
 RED_LIMIT = 3
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
-QUOTA_LEDGER = os.path.join(os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota"), "claude.json")
+QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
+QUOTA_LEDGER = os.path.join(QUOTA_DIR, "claude.json")
 
 
 APP_CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
@@ -108,7 +109,7 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -278,6 +279,25 @@ class Clerk:
                                f"{s['caps']['week']} this week; account {s['account']['five_hour']:g}% / "
                                f"{s['account']['week']:g}%; {s['active_runs']} runs active; reading {age} min old")
         self.log("caps", usage=self.state["usage"])
+
+    # ---- 5: efficiency records (research 11), append-only ------------------------------------
+    def record_runs(self, issues, by_id):
+        """Record every finished run once. Records are evidence, not Paperclip state, so dry-run writes them too."""
+        names = {a["id"]: a.get("name", "") for a in self.pc.list_agents(self.cid)}
+        n = records.collect(self.pc.runs(self.cid, limit=200), names, records.usage_by_run(QUOTA_DIR),
+                            os.path.join(self.data, "records", "runs.jsonl"))
+        if n:
+            self.log("records", new=n)
+
+    def report(self):
+        """Write records/report.md from the run records and the issues' current states."""
+        path = os.path.join(self.data, "records", "report.md")
+        recs = records.load_jsonl(os.path.join(self.data, "records", "runs.jsonl"))
+        issues = {i["id"]: i for i in self.pc.list_issues(self.cid)}
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(records.report(recs, issues, now=self.now()))
+        return path
 
     # ---- 6: digest ----------------------------------------------------------------------
     def digest(self, issues, by_id):

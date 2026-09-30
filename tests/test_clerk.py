@@ -15,11 +15,12 @@ class ClerkTests(unittest.TestCase):
         self.pc.wake_agent = lambda a, fresh=True: self.woken.append((a, fresh)) or True
         self.fp.agents = [{"id": "a1", "name": "Builder-1"}, {"id": "dir", "name": "Director"}]
         # never read the host's real usage-cap ledger
-        self._ledger = clerk_mod.QUOTA_LEDGER
+        self._ledger, self._qdir = clerk_mod.QUOTA_LEDGER, clerk_mod.QUOTA_DIR
         clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "no-ledger.json")
+        clerk_mod.QUOTA_DIR = os.path.join(self.tmp.name, "quota")
 
     def tearDown(self):
-        clerk_mod.QUOTA_LEDGER = self._ledger
+        clerk_mod.QUOTA_LEDGER, clerk_mod.QUOTA_DIR = self._ledger, self._qdir
         self.fp.stop(); self.tmp.cleanup()
 
     def gh(self, args):
@@ -238,6 +239,29 @@ class ClerkTests(unittest.TestCase):
         finally:
             clerk_mod.QUOTA_LEDGER = old
         self.assertEqual(self.fp.paused_calls, [])
+
+    def test_finished_runs_are_recorded_once_and_reported(self):
+        self.fp.agents = [{"id": "a1", "name": "Scout"}]
+        self.fp.add(id="t", title="Triage", status="done")
+        self.fp.runs_ = [
+            {"id": "r1", "agentId": "a1", "status": "succeeded", "createdAt": "2026-09-30T03:20:50Z",
+             "startedAt": "2026-09-30T03:20:55Z", "finishedAt": "2026-09-30T03:23:25Z",
+             "contextSnapshot": {"issueId": "t", "wakeReason": "issue_assigned"},
+             "usageJson": {"model": "claude-haiku-4-5-20251001", "billingType": "subscription_included",
+                           "inputTokens": 57416, "outputTokens": 11682, "costUsd": 0.28}},
+            {"id": "r2", "agentId": "a1", "status": "running", "createdAt": "2026-09-30T03:30:00Z"}]
+        os.makedirs(os.path.join(self.tmp.name, "quota"))
+        with open(os.path.join(self.tmp.name, "quota", "claude-runs.jsonl"), "w") as f:
+            f.write(json.dumps({"run": "r1", "agent": "a1", "used": {"five_hour": 2.0, "week": 0.5},
+                                "attribution": "bounded", "ended": "released", "windows": {}}) + "\n")
+        for _ in range(2):
+            self.clerk(dry_run=True).tick()  # records are evidence, written in dry-run too; once per run
+        recs = [json.loads(l) for l in open(os.path.join(self.tmp.name, "records", "runs.jsonl"))]
+        self.assertEqual([r["run"] for r in recs], ["r1"])  # the running one waits until it finishes
+        self.assertEqual(recs[0]["studio_usage"]["five_hour"], 2.0)
+        self.assertEqual(recs[0]["tokens"], {"inputTokens": 57416, "outputTokens": 11682})
+        text = open(self.clerk().report()).read()
+        self.assertIn("| Scout | claude-haiku-4-5-20251001 | 1 | 1 / 0 / 0 | 2.5 / 2.5 | 2 / 0.5 (n=1) | – | 11682 | 1 / 0 / 0 |", text)
 
     def test_weekly_export_and_cost_report(self):
         self.pc.export_company = lambda cid, out: True

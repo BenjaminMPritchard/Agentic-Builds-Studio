@@ -72,3 +72,18 @@ no `evidence` document, and skipped the Studio-repo comparison. Instructions now
 hand back as `in_review`, never `done`; check claims about `main` against `main`; fetch the other repository
 when asked to compare. Lesson for routing: a scout's finding that would cause code to be ported, merged or
 deleted is checked by the requester before anyone acts on it.
+
+## 6. Efficiency records, first increment (research 11) — implemented (this branch)
+
+- **Per-run usage** (`bin/studio-quota`): when a run ends (released, process gone, no reading, too old), the
+  controller appends one record to `/srv/studio/data/quota/<provider>-runs.jsonl`: Paperclip run id, agent,
+  studio points used per window (a bound), reservation, window ids, how it ended. `agent-exec` passes
+  `PAPERCLIP_RUN_ID`.
+- **Run records** (`lib/records.py`, Clerk step `record_runs`): every finished run once, append-only, in
+  `/srv/studio/data/records/runs.jsonl`: identity, issue, wake reason, status, timing, resolved model,
+  billing type, tokens as reported, Paperclip's API-equivalent estimate, joined with its usage record.
+  Written in dry-run too (records are evidence, not Paperclip state).
+- **Report** (`clerk report` → `records/report.md`): per agent: runs, outcomes, median and p90 duration,
+  Claude and Codex points per run in separate columns, output tokens, where the runs' issues stand.
+- **Not yet** (stated in the report): first-pass acceptance and rework share (need review outcomes per work
+  package), human minutes, latency against targets, local energy, project-interval and completion reports.

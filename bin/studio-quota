@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Usage caps for agent runs (lib/quota.py). Called by agent-exec as paperclip, never by agents.
 
-  studio-quota admit   --provider claude --agent ID --pid PID   # prints a run token; exit 5 refused, 6 no reading
+  studio-quota admit   --provider claude --agent ID --pid PID [--run RUN_ID]  # prints a run token; exit 5 refused, 6 no reading
   studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited, then settles
   studio-quota status  --provider claude                        # JSON
 
@@ -94,6 +94,7 @@ def main(argv):
     ap.add_argument("--agent")
     ap.add_argument("--pid", type=int)
     ap.add_argument("--after-pid", type=int)
+    ap.add_argument("--run", help="the Paperclip run id, kept in the run's usage record")
     a = ap.parse_args(argv[1:])
     if a.action == "release" and a.after_pid:
         # /proc, not kill(0): the run's process becomes root's sudo, which paperclip may not signal.
@@ -103,6 +104,7 @@ def main(argv):
     os.makedirs(LEDGER_DIR, mode=0o700, exist_ok=True)
     policy = quota.load_policy(POLICY, a.provider)
     path = os.path.join(LEDGER_DIR, a.provider + ".json")
+    runs_log = os.path.join(LEDGER_DIR, a.provider + "-runs.jsonl")
     with quota.Ledger(path) as ledger:
         if a.action == "release":
             if not a.token:
@@ -113,6 +115,7 @@ def main(argv):
                 print(f"studio-quota: {e}; run stays counted until the next reading", file=sys.stderr)
                 r = None
             quota.release(ledger, a.token, r, quota.now())
+            quota.flush_finished(ledger, runs_log)
             return 0
         try:
             r = reading(a.provider)
@@ -125,7 +128,8 @@ def main(argv):
             return 0
         if not a.agent or not a.pid:
             ap.error("admit needs --agent and --pid")
-        token, reasons = quota.admit(ledger, r, a.agent, a.pid, policy, quota.now())
+        token, reasons = quota.admit(ledger, r, a.agent, a.pid, policy, quota.now(), run=a.run)
+        quota.flush_finished(ledger, runs_log)  # runs that admission found finished
     if token is None:
         print(f"studio-quota: {a.provider} cap reached; not starting: " + "; ".join(reasons), file=sys.stderr)
         return 5
