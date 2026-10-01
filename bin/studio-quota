@@ -5,6 +5,8 @@
   studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited (stopping it at a cap), then settles
   studio-quota status  --provider claude                        # JSON
   studio-quota correct --provider claude --window five_hour|week --points N --reason TEXT   # repair, logged
+  studio-quota override --provider claude --window five_hour --points 100 --until 2026-10-02T08:00 --reason TEXT
+                                                  # a temporary cap that ends by itself at --until (local time), logged
 
 The reading is `claude -p /usage` (no model call) with paperclip's own claude.ai sign-in: the run's token and
 any API key are removed, so the reading is always the subscription meter, never API usage. Codex has no reader yet, so Codex runs are refused until one is added.
@@ -77,6 +79,10 @@ def read_codex():
         proc.wait()
 
 
+def load(provider):
+    return quota.load_policy(POLICY, provider, os.path.join(LEDGER_DIR, f"override-{provider}.json"))
+
+
 DROP_ENV = {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
             "OPENAI_API_KEY", "OPENAI_BASE_URL"}
 READERS = {"claude": read_claude, "codex": read_codex}
@@ -89,7 +95,9 @@ def reading(provider):
 
 
 def check_running(a, path, policy):
-    """One check during a run: stop it (SIGTERM, logged) if studio use has reached a cap. True once stopped."""
+    """One check during a run: stop it (SIGTERM, logged) if studio use has reached a cap. True once stopped.
+    The policy is read again each time, so an override set or ended during the run applies to it."""
+    policy = load(a.provider)
     try:
         r = reading(a.provider)
     except quota.QuotaError:
@@ -112,7 +120,7 @@ def check_running(a, path, policy):
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="studio-quota")
-    ap.add_argument("action", choices=["admit", "release", "status", "correct"])
+    ap.add_argument("action", choices=["admit", "release", "status", "correct", "override"])
     ap.add_argument("token", nargs="?")
     ap.add_argument("--provider", required=True, choices=["claude", "codex"])
     ap.add_argument("--agent")
@@ -122,9 +130,28 @@ def main(argv):
     ap.add_argument("--window", choices=list(quota.WINDOWS))
     ap.add_argument("--points", type=float)
     ap.add_argument("--reason")
+    ap.add_argument("--until", help="override: when it ends, as local time YYYY-MM-DDTHH:MM")
     a = ap.parse_args(argv[1:])
     os.makedirs(LEDGER_DIR, mode=0o700, exist_ok=True)
-    policy = quota.load_policy(POLICY, a.provider)
+    if a.action == "override":
+        if not a.window or a.points is None or not a.until or not a.reason:
+            ap.error("override needs --window, --points, --until and --reason")
+        import datetime
+        until = datetime.datetime.fromisoformat(a.until).astimezone().timestamp()
+        if until <= quota.now():
+            ap.error("--until is in the past")
+        o = quota.override(a.window, a.points, until)
+        target = os.path.join(LEDGER_DIR, f"override-{a.provider}.json")
+        with open(os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            json.dump(o, f)
+        os.replace(target + ".tmp", target)
+        fd = os.open(os.path.join(LEDGER_DIR, "corrections.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a") as f:
+            f.write(json.dumps({"t": quota.now(), "provider": a.provider, "override": o, "reason": a.reason,
+                                "by": os.environ.get("SUDO_USER") or os.environ.get("USER")}) + "\n")
+        print(f"{a.provider} {a.window} cap {a.points:g} until {a.until}, then policy/quota.json again")
+        return 0
+    policy = load(a.provider)
     path = os.path.join(LEDGER_DIR, a.provider + ".json")
     runs_log = os.path.join(LEDGER_DIR, a.provider + "-runs.jsonl")
     if a.action == "release" and a.after_pid:
