@@ -2,7 +2,7 @@
 """Usage caps for agent runs (lib/quota.py). Called by agent-exec as paperclip, never by agents.
 
   studio-quota admit   --provider claude --agent ID --pid PID [--run RUN_ID]  # prints a run token; exit 5 refused, 6 no reading
-  studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited, then settles
+  studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited (stopping it at a cap), then settles
   studio-quota status  --provider claude                        # JSON
   studio-quota correct --provider claude --window five_hour|week --points N --reason TEXT   # repair, logged
 
@@ -12,6 +12,7 @@ any API key are removed, so the reading is always the subscription meter, never 
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -87,6 +88,28 @@ def reading(provider):
     return READERS[provider]()
 
 
+def check_running(a, path, policy):
+    """One check during a run: stop it (SIGTERM, logged) if studio use has reached a cap. True once stopped."""
+    try:
+        r = reading(a.provider)
+    except quota.QuotaError:
+        return False  # no reading: keep going; admission and release still read
+    with quota.Ledger(path) as ledger:
+        reasons = quota.over_cap(ledger, r, policy, quota.now())
+    if not reasons:
+        return False
+    try:
+        os.kill(a.after_pid, signal.SIGTERM)
+    except OSError as e:
+        reasons.append(f"could not stop it: {e}")
+    fd = os.open(os.path.join(LEDGER_DIR, "stops.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a") as f:
+        f.write(json.dumps({"t": quota.now(), "provider": a.provider, "pid": a.after_pid, "token": a.token,
+                            "reasons": reasons}) + "\n")
+    print(f"studio-quota: stopped run {a.after_pid}: " + "; ".join(reasons), file=sys.stderr)
+    return True
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="studio-quota")
     ap.add_argument("action", choices=["admit", "release", "status", "correct"])
@@ -100,15 +123,22 @@ def main(argv):
     ap.add_argument("--points", type=float)
     ap.add_argument("--reason")
     a = ap.parse_args(argv[1:])
-    if a.action == "release" and a.after_pid:
-        # /proc, not kill(0): the run's process becomes root's sudo, which paperclip may not signal.
-        while os.path.exists(f"/proc/{a.after_pid}"):
-            time.sleep(float(os.environ.get("STUDIO_QUOTA_POLL", 5)))
-        time.sleep(float(os.environ.get("STUDIO_QUOTA_SETTLE", 10)))  # late usage reports land in this run
     os.makedirs(LEDGER_DIR, mode=0o700, exist_ok=True)
     policy = quota.load_policy(POLICY, a.provider)
     path = os.path.join(LEDGER_DIR, a.provider + ".json")
     runs_log = os.path.join(LEDGER_DIR, a.provider + "-runs.jsonl")
+    if a.action == "release" and a.after_pid:
+        # /proc, not kill(0), to see whether the run is alive. While it is, read usage every few minutes and stop
+        # the run once studio use reaches a cap. The run's process is sudo, whose real user is still paperclip,
+        # so paperclip may signal it, and sudo passes the signal on to the agent CLI.
+        every = float(os.environ.get("STUDIO_QUOTA_CHECK", 120))
+        next_check, stopped = time.time() + every, False
+        while os.path.exists(f"/proc/{a.after_pid}"):
+            if not stopped and every > 0 and time.time() >= next_check:
+                next_check = time.time() + every
+                stopped = check_running(a, path, policy)
+            time.sleep(float(os.environ.get("STUDIO_QUOTA_POLL", 5)))
+        time.sleep(float(os.environ.get("STUDIO_QUOTA_SETTLE", 10)))  # late usage reports land in this run
     with quota.Ledger(path) as ledger:
         if a.action == "correct":
             if not a.window or a.points is None or not a.reason:
