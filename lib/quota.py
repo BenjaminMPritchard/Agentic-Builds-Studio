@@ -23,6 +23,7 @@ import time
 import uuid
 
 WINDOWS = ("five_hour", "week")
+DROP = 1.0  # percentage points of rounding noise tolerated before a falling reading means a new window
 LINE = re.compile(r"^\s*Current (session|week \(([^)]*)\)):\s*([\d.]+)% used(?:\s*·\s*resets (.+?))?\s*$")
 
 
@@ -148,13 +149,16 @@ def observe(ledger, reading, now):
         prev = (last or {}).get(w)
         if prev is None:
             delta = 0.0  # nothing to compare with; the first reading is taken before any run starts
-        elif same_window(prev, cur, now):
+        elif same_window(prev, cur, now) and cur["pct"] >= prev["pct"] - DROP:
             delta = max(0.0, cur["pct"] - prev["pct"])
             if prev["key"] != cur["key"]:  # the reset time was reworded or rounded: keep the window's total
                 studio = ledger["studio"][w]
                 studio[cur["key"]] = round(studio.get(cur["key"], 0.0) + studio.pop(prev["key"], 0.0), 3)
         else:
-            delta = cur["pct"]  # a new window began since the last reading
+            # A new window began since the last reading. Use never falls inside one window, so a drop is a new
+            # window too, even with an unchanged reset time (Benjamin reset Codex use on 2026-10-01).
+            delta = cur["pct"]
+            ledger["studio"][w].pop(cur["key"], None)
         if active and delta > 0:
             studio = ledger["studio"][w]
             studio[cur["key"]] = round(studio.get(cur["key"], 0.0) + delta, 3)
