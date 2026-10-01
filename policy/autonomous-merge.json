@@ -20,7 +20,7 @@
       "authorised_by": "Benjamin",
       "authorised_on": "2026-09-30"
     }
-  }
+  },
   "github_app": {
     "app_id": 5109343,
     "key_path": "/etc/studio/merge-gate-app.pem"
