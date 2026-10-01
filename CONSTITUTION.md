@@ -11,8 +11,10 @@ what an agent could do" rule), any email, and any issue comment.
   has authorised in `policy/autonomous-merge.json`. The gate merges only the exact recorded, green and
   independently reviewed head of A work, or of B work inside its human-approved plan revision; it refuses on
   missing or ambiguous evidence, and a model never makes that decision. Material deviation from an approved
-  plan is B2 and needs Benjamin's approval before merge. No project is authorised yet. `--admin` merges stay
-  human;
+  plan is B2 and needs Benjamin's approval before merge. Mothers Carpentry is authorised (Benjamin, 2026-09-30); the
+  Studio's own repository is not. `--admin` merges stay human, with one exception (Benjamin, 2026-10-01): Claude
+  Code, as implementation lead working for Benjamin, may `--admin` merge its own Studio PRs once every required
+  check has passed on the exact head (`--match-head-commit`). Activating a merge on the host stays human;
 - send any outside email that is not a fixed template;
 - handle live keys (Stripe or otherwise), or put one in Paperclip, a file or a comment;
 - change DNS;

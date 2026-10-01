@@ -1,6 +1,8 @@
 # Autonomous merge gate
 
-Status (2026-09-28): **implemented in source, not activated, no project authorised.**
+Status (2026-09-30): **Mothers Carpentry authorised by Benjamin** (A and B work; money, stock, personal-data,
+settings and migration files stay protected, so PRs touching them wait for a human). The Studio repository is not
+authorised; its PRs are merged by Benjamin or, after green CI, by Claude Code with `--admin` (Constitution, 2026-10-01).
 Code: `lib/merge_gate.py`, `bin/merge-gate`. Policy: `policy/autonomous-merge.json`
 (human-only by the Constitution and Guard `NEVER_ALLOWED`; listed in `CODEOWNERS`, which GitHub does
 not currently enforce: see the rulesets below). Tests:
