@@ -12,4 +12,4 @@
 - **Done when:** (checkable statements)
 - **Evidence required:** (tests, screenshots, links)
 - **e2e:** yes | no
-- **Budget hint:** (turns or cents)
+- **Size:** (estimated points of the provider's five-hour window; about 15 at most, else split into steps)

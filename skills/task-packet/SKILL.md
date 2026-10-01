@@ -6,7 +6,8 @@ description: Use when creating, splitting or routing a task, or reading a projec
 
 Write every task as a packet (template: `templates/task-packet.md`): goal, explicit work-product
 links, authority, engineering risk, allowed and protected paths, dependencies, done-when,
-evidence required, e2e yes/no, budget hint.
+evidence required, e2e yes/no, and **Size** (estimated points of the provider's five-hour window,
+about 15 at most: split bigger work into ordered steps, each its own packet; see skill `routing-table`).
 
 **Authority and engineering risk are separate.**
 - **A:** already authorised low-consequence work. State the objective and acceptance criteria;
