@@ -12,7 +12,9 @@ Before a run starts, its estimated cost is reserved and every check must pass:
   account 5-hour used + reserved + this job + margin <= 100
   account weekly used + reserved + this job + margin + personal allowance still unused <= 100
 No reading means no admission. Estimates start from policy and move to the largest recent measured run
-for that agent. These are operating caps, not a proof against overshoot: usage is reported late and rounded.
+for that agent. While a run is active its watcher also reads usage every few minutes (over_cap) and stops the
+run once studio use reaches a cap: admission alone let one Codex run take a whole five-hour window. These are
+operating caps, not a proof against overshoot: usage is reported late and rounded, and the check is periodic.
 """
 import json
 import os
@@ -160,6 +162,14 @@ def observe(ledger, reading, now):
                 run["used"][w] = round(run["used"][w] + delta, 3)
         ledger["studio"][w] = {k: v for k, v in ledger["studio"][w].items() if k == cur["key"]}
     ledger["last"] = {"t": now, **{w: reading[w] for w in WINDOWS}}
+
+
+def over_cap(ledger, reading, policy, now):
+    """Take a reading during a run; the reasons studio use has reached a cap (empty while inside them)."""
+    observe(ledger, reading, now)
+    s = status(ledger, reading, policy)
+    return [f"studio {label} use {s['studio'][w]:g} reached the cap {s['caps'][w]:g} (resets {s['resets'][w] or 'unknown'})"
+            for w, label in (("five_hour", "5-hour"), ("week", "weekly")) if s["studio"][w] >= s["caps"][w]]
 
 
 def _finish(ledger, token, now, how):

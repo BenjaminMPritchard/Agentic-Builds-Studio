@@ -301,6 +301,31 @@ class Cli(unittest.TestCase):
         self.assertEqual((rec["run"], rec["agent"], rec["used"]), ("run-9", "rec", {"five_hour": 5.0, "week": 1.0}))
         self.assertEqual(os.stat(os.path.join(self.tmp, "q", "claude.json")).st_mode & 0o777, 0o600)
 
+    def test_a_run_is_stopped_when_studio_use_reaches_the_cap(self):
+        # 2026-10-01: admission passed at 0% and one Codex run then took the whole five-hour window.
+        token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
+        run = subprocess.Popen(["sleep", "30"])
+        self.usage(40 + 23, 12)  # 23 points of studio use since admission; the Claude cap is 22
+        env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0", "STUDIO_QUOTA_CHECK": "0.2"}
+        rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
+                                "--after-pid", str(run.pid), token], env=env, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(run.wait(timeout=10), -15)  # SIGTERM
+        self.assertIn("reached the cap 22", rel.communicate(timeout=10)[1])
+        stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
+        self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
+
+    def test_a_run_inside_the_caps_is_left_alone(self):
+        token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
+        run = subprocess.Popen(["sleep", "1"])
+        self.usage(45, 11)
+        env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0", "STUDIO_QUOTA_CHECK": "0.2"}
+        rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
+                                "--after-pid", str(run.pid), token], env=env)
+        time.sleep(1.5)  # several checks while the run is alive
+        self.assertEqual(run.wait(timeout=5), 0)
+        rel.wait(timeout=10)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "q", "stops.jsonl")))
+
     def test_release_waits_for_the_run_to_end(self):
         r = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid()))
         token = r.stdout.strip()
