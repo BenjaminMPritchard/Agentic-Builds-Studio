@@ -300,9 +300,27 @@ def correct(ledger, window, points):
     return key, before
 
 
-def load_policy(path, provider):
+def load_policy(path, provider, override=None, now=None):
+    """The provider's policy, with a temporary cap override (see `override`) applied while it lasts."""
     with open(path) as f:
-        return json.load(f)[provider]
+        policy = json.load(f)[provider]
+    if override and os.path.exists(override):
+        with open(override) as f:
+            o = json.load(f)
+        if (now if now is not None else time.time()) < o["until"]:
+            policy = {**policy, **{k: o[k] for k in ("five_hour_cap", "weekly_cap") if k in o}}
+    return policy
+
+
+def override(window, points, until):
+    """A temporary cap, which Benjamin sets for a night of extra work: `points` (at most 100) for `window`
+    until the epoch time `until`, after which policy/quota.json applies again with no further step."""
+    if window not in WINDOWS:
+        raise QuotaError(f"unknown window {window}")
+    if not 0 < points <= 100:
+        raise QuotaError("a cap is between 0 and 100 points")
+    key = {"five_hour": "five_hour_cap", "week": "weekly_cap"}[window]
+    return {key: float(points), "until": float(until)}
 
 
 class Ledger:

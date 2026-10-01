@@ -274,6 +274,18 @@ class Controller(unittest.TestCase):
         with self.assertRaises(QuotaError):
             quota.correct(quota.empty(), "week", 1)
 
+    def test_an_override_raises_a_cap_until_it_ends(self):
+        path = os.path.join(tempfile.mkdtemp(), "override-claude.json")
+        with open(path, "w") as f:
+            json.dump(quota.override("five_hour", 100, until=1000), f)
+        policy_file = os.path.join(ROOT, "policy", "quota.json")
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["five_hour_cap"], 100.0)
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["five_hour_cap"], 22)  # ended
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 80)  # untouched
+        with self.assertRaises(QuotaError):
+            quota.override("five_hour", 120, until=1000)
+        shutil.rmtree(os.path.dirname(path))
+
     def test_very_old_runs_are_ended(self):
         tok, _ = self.admit(reading(10, 10))
         self.t += POLICY["max_run_hours"] * 3600 + 1
@@ -314,6 +326,19 @@ class Cli(unittest.TestCase):
         rec = json.loads(open(os.path.join(self.tmp, "q", "claude-runs.jsonl")).read())
         self.assertEqual((rec["run"], rec["agent"], rec["used"]), ("run-9", "rec", {"five_hour": 5.0, "week": 1.0}))
         self.assertEqual(os.stat(os.path.join(self.tmp, "q", "claude.json")).st_mode & 0o777, 0o600)
+
+    def test_an_override_is_written_logged_and_used_by_admission(self):
+        self.usage(40, 10)
+        r = self.q("override", "--provider", "claude", "--window", "five_hour", "--points", "100",
+                   "--until", "2099-01-01T08:00", "--reason", "a night of extra work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        q = os.path.join(self.tmp, "q")
+        self.assertEqual(json.load(open(os.path.join(q, "override-claude.json")))["five_hour_cap"], 100.0)
+        self.assertIn("a night of extra work", open(os.path.join(q, "corrections.jsonl")).read())
+        self.assertEqual(os.stat(os.path.join(q, "override-claude.json")).st_mode & 0o777, 0o600)
+        r = self.q("override", "--provider", "claude", "--window", "five_hour", "--points", "100",
+                   "--until", "2000-01-01T08:00", "--reason", "x")
+        self.assertNotEqual(r.returncode, 0)  # an end in the past is refused
 
     def test_a_run_is_stopped_when_studio_use_reaches_the_cap(self):
         # 2026-10-01: admission passed at 0% and one Codex run then took the whole five-hour window.
