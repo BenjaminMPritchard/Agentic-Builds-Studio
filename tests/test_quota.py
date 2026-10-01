@@ -143,6 +143,19 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.status(self.l, reading(2, 11, sk="Sep 29, 11:50am (Europe/London)"), POLICY)
                          ["studio"]["five_hour"], 0.0)
 
+    def test_a_usage_reset_starts_the_window_again(self):
+        # 2026-10-01: Benjamin reset Codex use. The reset time moved by 58 minutes (inside the tolerance for a
+        # reworded time), so the old window's 100 points were carried over and every run was refused.
+        tok, _ = self.admit(reading(0, 10))
+        quota.release(self.l, tok, reading(100, 30), self.t)
+        for sk in ("Sep 29, 6:50am (Europe/London)", "Sep 29, 7:48am (Europe/London)"):
+            self.l["studio"]["five_hour"] = {"Sep 29, 6:50am (Europe/London)": 100.0}
+            self.l["last"]["five_hour"] = reading(100, 30)["five_hour"]
+            tok, why = self.admit(reading(3, 30, sk=sk), pid=7)
+            self.assertTrue(tok, (sk, why))
+            self.assertEqual(quota.status(self.l, reading(3, 30, sk=sk), POLICY)["studio"]["five_hour"], 0.0, sk)
+            quota.release(self.l, tok, reading(3, 30, sk=sk), self.t)
+
     def fresh(self, studio_week, account_week):
         self.l = quota.empty()
         self.l["studio"]["week"]["Oct 5, 9am (Europe/London)"] = studio_week
