@@ -28,7 +28,8 @@ class CodexExec(unittest.TestCase):
                     "STUDIO_AGENT_PROVIDER": "codex", "STUDIO_CODEX_REQUIREMENTS": self.req,
                     "STUDIO_AGENT_STAGE_DIR": os.path.join(self.tmp, "runs"), "STUDIO_QUOTA": quota,
                     "STUDIO_QUOTA_POLL": "0.1", "STUDIO_QUOTA_SETTLE": "0", "PAPERCLIP_AGENT_ID": "cx",
-                    "CODEX_HOME": "/home/paperclip/.paperclip/agents/cx/codex-home", "OPENAI_API_KEY": "sk-x"}
+                    "CODEX_HOME": "/home/paperclip/.paperclip/agents/cx/codex-home", "OPENAI_API_KEY": "sk-x",
+                    "STUDIO_AGENT_CACHE": os.path.join(self.tmp, "no-cache")}
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -59,6 +60,26 @@ class CodexExec(unittest.TestCase):
         self.assertEqual(argv[argv.index("-c", argv.index("exec")) + 1],
                          f'sandbox_workspace_write.writable_roots=["{projects}","{git}"]')
         self.assertEqual(argv[-2:], ["--skip-git-repo-check", "-"])  # extended in place, nothing appended
+
+    def test_the_shared_package_cache_is_used_and_writable_in_the_sandbox(self):
+        cache = os.path.join(self.tmp, "agent-cache")
+        os.makedirs(cache)
+        projects = os.path.join(self.tmp, "projects")
+        os.makedirs(projects)
+        self.env.update(STUDIO_AGENT_CACHE=cache, UV_CACHE_DIR="/tmp/run-1/uv")  # a run's own scratch cache loses
+        r = self.run_("exec", "-c", f'sandbox_workspace_write.writable_roots=["{projects}"]', "-")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = shlex.split(r.stdout.splitlines()[0])
+        self.assertIn(f'sandbox_workspace_write.writable_roots=["{cache}","{projects}"]', argv)
+        self.assertIn(f"UV_CACHE_DIR={cache}/uv\n", r.stdout)
+        self.assertIn(f"npm_config_cache={cache}/npm\n", r.stdout)
+
+    def test_without_the_shared_cache_folder_nothing_changes(self):
+        roots = f'sandbox_workspace_write.writable_roots=["{self.tmp}"]'
+        r = self.run_("exec", "-c", roots, "-")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(roots, shlex.split(r.stdout.splitlines()[0]))
+        self.assertIn("UV_CACHE_DIR=\n", r.stdout)
 
     def test_gh_reads_the_agents_own_settings_not_paperclips(self):
         self.env["GH_CONFIG_DIR"] = "/home/paperclip/.config/gh"

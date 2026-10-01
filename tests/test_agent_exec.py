@@ -1,14 +1,15 @@
-import os, subprocess, unittest
+import os, subprocess, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXEC = os.path.join(ROOT, "bin", "agent-exec")
 
 
-def run(*args):
+def run(*args, **env):
     return subprocess.run([EXEC, *args], capture_output=True, text=True,
                           env={**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1",
                                # the host's real App config must not leak in; token handling is in test_agent_identity
-                               "STUDIO_AGENTS_APP_CONFIG": "/nonexistent/agents-app.json"})
+                               "STUDIO_AGENTS_APP_CONFIG": "/nonexistent/agents-app.json",
+                               "STUDIO_AGENT_CACHE": "/nonexistent/agent-cache", **env})
 
 
 class AgentExec(unittest.TestCase):
@@ -18,6 +19,12 @@ class AgentExec(unittest.TestCase):
         self.assertTrue(r.stdout.startswith(
             "sudo -n -E -H -u studio-agent -- /usr/bin/setpriv --pdeathsig KILL -- "
             "/home/studio-agent/.local/bin/claude --print - --settings /srv/studio/claude/director.json"))
+
+    def test_claude_runs_share_one_package_cache_when_it_exists(self):
+        with tempfile.TemporaryDirectory() as cache:
+            r = run("--print", "-", "--settings", "/srv/studio/claude/director.json", STUDIO_AGENT_CACHE=cache)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"UV_CACHE_DIR={cache}/uv\nnpm_config_cache={cache}/npm\n", r.stdout)
 
     def test_refuses_without_settings_so_guard_cannot_be_skipped(self):
         r = run("--print", "-")

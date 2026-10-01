@@ -23,6 +23,10 @@ APP_CONFIG="${STUDIO_AGENTS_APP_CONFIG:-/etc/studio/agents-app.json}"
 OWNER="${STUDIO_AGENT_GITHUB_OWNER:-Agentic-Builds-Studio-Client-Pages}"
 HERE="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 SETENV=()
+# One package cache for every agent and run (deploy/agent-cache-setup.sh makes it), so uv and npm do not download
+# the same packages again on each run. Not there: each tool's own default, as before.
+CACHE="${STUDIO_AGENT_CACHE:-/srv/studio/data/agent-cache}"
+[ -d "$CACHE" ] || CACHE=""
 # The runtime checkout is not a workspace: a task in a project whose folder is /srv/studio/company starts there,
 # and an agent working in it would be working on the live Studio. Studio tasks have no project.
 RUNTIME="${STUDIO_RUNTIME_DIR:-/srv/studio/company}"
@@ -62,10 +66,13 @@ case "$PROVIDER" in
     # worktree's gitdir pointer to it), so a builder could edit files but never commit. A repository's .git named
     # as a writable root of its own is writable, so each writable_roots list given is extended in place with every
     # repository's .git found up to three levels below its roots (projects/<name>/repo/.git).
+    # The shared package cache is outside every workspace, so it is added as a writable root as well (Codex's home
+    # folder is read-only in the sandbox, which made uv fail with "Read-only file system").
     NEW=()
     for a in "$@"; do
       case "$a" in sandbox_workspace_write.writable_roots=*)
         LIST=()
+        [ -n "$CACHE" ] && LIST+=("\"$CACHE\"")
         while IFS= read -r r; do
           LIST+=("\"$r\"")
           while IFS= read -r g; do LIST+=("\"$g\""); done < <(find "$r" -mindepth 1 -maxdepth 3 -name .git -type d -prune 2>/dev/null | sort)
@@ -79,6 +86,9 @@ case "$PROVIDER" in
 esac
 # gh reads its settings from GH_CONFIG_DIR, which may point into Paperclip's home (unreadable to studio-agent).
 export GH_CONFIG_DIR="/home/$AGENT_USER/.config/gh"
+if [ -n "$CACHE" ]; then
+  export UV_CACHE_DIR="$CACHE/uv" npm_config_cache="$CACHE/npm" PIP_CACHE_DIR="$CACHE/pip"
+fi
 if [ -e "$APP_CONFIG" ]; then
   TOKEN="$("$HERE/agent-github-token" "$OWNER")" || { echo "agent-exec: no GitHub App token for $OWNER; not starting" >&2; exit 3; }
   GRANT="$("$HERE/agent-github-token" --new-grant "$OWNER")" || { echo "agent-exec: no GitHub grant for $OWNER; not starting" >&2; exit 3; }
@@ -115,6 +125,7 @@ fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
   echo "GH_CONFIG_DIR=$GH_CONFIG_DIR"
+  echo "UV_CACHE_DIR=${UV_CACHE_DIR:-}"; echo "npm_config_cache=${npm_config_cache:-}"
   if [ -n "${GH_TOKEN:-}" ]; then echo "GH_TOKEN=${GH_TOKEN:0:8}..."; echo "GITHUB_TOKEN=${GITHUB_TOKEN:+set}"; fi
   if [ -n "${STUDIO_AGENT_GITHUB_GRANT:-}" ]; then echo "GRANT=$STUDIO_AGENT_GITHUB_GRANT"; echo "CREDENTIAL=$GIT_CONFIG_VALUE_1"; fi
   if [ "$PROVIDER" = codex ]; then echo "CODEX_HOME=$CODEX_HOME"; echo "OPENAI_API_KEY=${OPENAI_API_KEY:+set}"; fi

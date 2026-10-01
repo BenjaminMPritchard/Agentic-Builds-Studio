@@ -117,6 +117,12 @@ deleted is checked by the requester before anyone acts on it.
   `codex sandbox` (no model use) for a commit in the repository and in a worktree. `agent-exec` also sets
   `GH_CONFIG_DIR=/home/studio-agent/.config/gh` for every run. The builders go back to `active` after one real
   Codex-Builder task commits and opens its PR.
+- Shared package cache (IMPLEMENTED 2026-10-01, not yet activated): every run downloaded its uv and npm packages
+  again, and Codex could not use `~/.cache` at all (read-only in its sandbox). `agent-exec` now points
+  `UV_CACHE_DIR`, `npm_config_cache` and `PIP_CACHE_DIR` at `/srv/studio/data/agent-cache` and adds that folder to
+  a Codex agent's writable roots, but only when the folder exists. Benjamin makes it once with
+  `sudo bash /srv/studio/company/deploy/agent-cache-setup.sh`. uv and npm both lock their caches, so parallel runs
+  can share one. Code is never stored there, only downloaded packages.
 - Known, not new: the `studio` group can already write every project's `.git` (hooks, config), for Claude agents
   too. Paperclip runs git in those repositories as `paperclip` (workspace worktrees), so a planted hook or
   filter would run as `paperclip`. Tracked separately; this fix does not widen it.
