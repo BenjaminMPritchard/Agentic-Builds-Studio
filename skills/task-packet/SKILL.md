@@ -29,8 +29,8 @@ worker, stronger checks and independent review; it does not itself require human
 Use Paperclip's review policy with an independent qualified reviewer when engineering risk
 requires it. The author must not independently accept consequential implementation. Read
 `.studio/project.yaml` for project-specific check and isolation rules. Merge authority comes only
-from `policy/autonomous-merge.json` in the Studio repo, through `bin/merge-gate`; Studio and Mothers
-are not authorised, so their PRs require human merge. A B plan must state `**Scope paths:**`
+from `policy/autonomous-merge.json` in the Studio repo, through `bin/merge-gate`; Mothers is authorised
+(money, stock, personal-data, settings and migration files excepted); Studio PRs require human merge. A B plan must state `**Scope paths:**`
 (comma-separated globs); files outside it make the work B2.
 
 ## Paperclip gotchas (verified on a live instance)

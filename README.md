@@ -18,7 +18,7 @@ work proceeds without human confirmation. B requires human-only acceptance of
 the exact `plan` document revision. Consequential HUMAN actions wait for direct
 human authority. PRs require human merge unless `policy/autonomous-merge.json`
 authorises the project, in which case only the deterministic `bin/merge-gate` may
-merge. No project is authorised; Studio and Mothers PRs require human merge. See
+merge. Mothers Carpentry is authorised. Studio PRs are merged by Benjamin, or by Claude Code (implementation lead) after green CI; activation stays human. See
 `playbook/merge-gate.md` for the gate's conditions and what enabling a project needs.
 
 ## Source and runtime
