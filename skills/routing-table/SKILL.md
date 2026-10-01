@@ -30,10 +30,10 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 | Exhaustive research, repo inventory, "find every place" | Scout (Haiku) / Codex-Scout (Luna) | Builder | evidence packet with coverage |
 | Plans, trade-offs, acceptance criteria | Director | Principal / Codex-Principal | explicit trade-offs; B needs Benjamin |
 | Routine change to an established pattern | Builder-1/2 (Sonnet) / Codex-Builder (Sol) | Principal | targeted tests, `make check`, allowed paths |
-| Multi-file feature or integration | Builder-1 / Codex-Builder | Principal / Codex-Principal | new tests, `make check`, review |
-| UI and visual work | Builder-1 or Principal | Codex-Builder | screenshots phone + desktop, axe |
+| Multi-file feature or integration | Builder-1/2 / Codex-Builder; Principal reviews | Principal / Codex-Principal | new tests, `make check`, review |
+| UI and visual work | Builder-1/2; Principal reviews | Codex-Builder | screenshots phone + desktop, axe |
 | Difficult debugging, migrations, incidents | Principal (Opus) / Codex-Principal (Astra) | Director | reproduced cause + failing test first |
-| Auth, payments, permissions, refunds, data loss | Principal | Codex-Principal | risk tests + review by a *different* agent |
+| Auth, payments, permissions, refunds, data loss | Principal plans small steps and reviews each; Builders implement | Codex-Principal | risk tests + review by a *different* agent |
 | Client replies | Liaison | Director, then Board | verified facts; human-confirmed send |
 | Journals, metrics, lessons | Recorder | Worker | sources cited |
 | Studio architecture review after a production phase | Architect (rare; skill `architect-review`) | — | one PR of proposals under `upgrades/` |
@@ -43,9 +43,22 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 Codex's sandbox leaves the repository's `.git` read-only, so they cannot commit yet. Codex-Scout (read and
 report only) is active.
 
+## Size every run to fit the window
+
+Runs are expensive, and a run that hits a cap is stopped partway. Measured so far (`measured` in
+`policy/routing.json`): a Principal build run used 45 to 63 points of the five-hour window in 17 to 41
+minutes, and Codex-Principal used about 5 points a minute. So:
+
+- **Principals plan, split, review and debug. Builders build.** A Principal builds only a step a Builder
+  handed back, or a hard bug it has reproduced.
+- **Size each implementation task to about 15 points** of its provider's window: for a Principal, roughly 10
+  to 15 minutes of work; a Builder gets more done for the same points. Split bigger work into ordered steps,
+  each with its own packet, and write the estimate on the packet's **Size** line.
+- A phase is a sequence of small tasks, not one long run.
+
 ## Choosing a provider
 
-Claude and Codex have separate caps (Claude 12% of each five-hour window, Codex 15%, both at most 80% of the
+Claude and Codex have separate caps (Claude 22% of each five-hour window, Codex 28%, both at most 80% of the
 week) and separate allowances. When both a Claude and a Codex agent fit a row, prefer the one whose
 provider has more headroom in the digest's **Usage** line. Moving work to the provider with spare allowance
 raises throughput; it does not make the work "cheaper", and the percentages are never added together.
