@@ -68,7 +68,8 @@ class Structure(unittest.TestCase):
         from lib.merge_gate import load_policy
         policy = load_policy(p("policy/autonomous-merge.json"))
         self.assertEqual(policy["github_app"], {"app_id": 5109343, "key_path": "/etc/studio/merge-gate-app.pem"})
-        self.assertEqual(policy["projects"], {})  # no project is authorised for autonomous merge yet
+        self.assertEqual(list(policy["projects"]), ["c2b582f3-d52e-47fd-812c-e29d6b805d3f"])  # Mothers only (Benjamin, 2026-09-30)
+        self.assertIsNone(__import__("lib.merge_gate").merge_gate.project_policy(policy, "c2b582f3-d52e-47fd-812c-e29d6b805d3f")[1])
 
     def test_constitution_and_codeowners(self):
         c = open(p("CONSTITUTION.md")).read()

@@ -1,7 +1,26 @@
 {
   "version": 1,
   "company_id": "bcf0f336-0c20-4194-9e21-fac517979ba0",
-  "projects": {},
+  "projects": {
+   "c2b582f3-d52e-47fd-812c-e29d6b805d3f": {
+     "enabled": true,
+     "repo": "Agentic-Builds-Studio-Client-Pages/Mothers-Carpentry-Webpage",
+      "base_branch": "main",
+      "merge_method": "merge",
+      "authority_classes": ["A", "B"],
+      "required_checks": ["check"],
+      "required_approvals": 1,
+      "trusted_reviewers": [],
+      "protected_paths": ["backend/core/migrations/*", "backend/core/models.py", "backend/config/settings.py",
+        "backend/core/money.py", "backend/core/payments.py", "backend/core/payment_views.py",
+        "backend/core/stripe_webhooks.py", "backend/core/refunds.py", "backend/core/refund_admin.py",
+        "backend/core/reservations.py", "backend/core/basket.py", "backend/core/returns.py",
+        "backend/core/retention.py", "backend/core/permissions.py"],
+      "mergeable_paths": [],
+      "authorised_by": "Benjamin",
+      "authorised_on": "2026-09-30"
+    }
+  },
   "github_app": {
     "app_id": 5109343,
     "key_path": "/etc/studio/merge-gate-app.pem"
