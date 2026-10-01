@@ -224,13 +224,15 @@ def _drop_ended(ledger, now):
 
 
 def estimate(ledger, agent, policy):
-    """The largest of the agent's recent runs, but never more than an empty window allows: an estimate above the
-    cap would refuse the agent for good, and with no new runs no smaller sample could ever replace it."""
+    """The largest of the agent's recent runs, but never more than half the cap. An estimate near the cap refuses
+    the agent as soon as the window has any use in it (2026-10-01: Codex-Principal at 27 of 28 could not start with
+    6 used), and with no new runs no smaller sample could ever replace it. Half is enough to reserve: the mid-run
+    checks stop a run that takes the window over the cap, so the reservation need not cover a whole large run."""
     samples = ledger["samples"].get(agent, [])
     if len(samples) < policy["estimate_samples"]:
         return dict(policy["default_job"])
     caps = {"five_hour": policy["five_hour_cap"], "week": policy["weekly_cap"]}
-    return {w: min(caps[w] - policy["margin"][w], max(policy["min_job"][w], max(s[i] for s in samples)))
+    return {w: min(caps[w] / 2, max(policy["min_job"][w], max(s[i] for s in samples)))
             for i, w in enumerate(WINDOWS)}
 
 
