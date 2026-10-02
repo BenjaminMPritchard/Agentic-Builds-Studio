@@ -10,7 +10,16 @@ problem is acted on and reported once, not on every tick.
              agent woken again on the same issue.
   idle       an issue is todo or in progress, its agent is idle and nothing has happened for 2 hours: the agent is
              woken on it, at most twice a day; after that Benjamin is told.
-  blocked    an issue is blocked: Benjamin is told once per blocking, with the latest comment's first line.
+  blocked    an issue is blocked: Benjamin is told once per blocking, in plain words. A block caused by the usage
+             cap is not reported on its own: the "paused" notice covers it.
+
+Benjamin, 2026-10-02: "I just want my notifications to actually tell me what's going on." So the watchdog also
+reports what the Studio as a whole is doing, not only single issues:
+
+  paused     an agent's run was refused by the usage cap: once per pause, which budget ran out, what work is saved
+             and waiting, and when it carries on.
+  running    the first run after a pause: who is working on what again.
+  finished   an issue was marked done.
 
 Nothing is woken during quiet hours (lib/notify.QUIET): work runs while Benjamin is awake.
 """
@@ -23,6 +32,7 @@ SILENT_CANCEL = 60 * 60
 IDLE_AFTER = 2 * 3600
 IDLE_WAKES_PER_DAY = 2
 CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
+CAP_DETAIL = re.compile(r"studio (5-hour|week): used ([\d.]+) .*?> ([\d.]+)")
 RESETS = re.compile(r"resets (?:\w+ \d+, )?([^()]+?)\s*\(")
 # Paperclip's own status comments, in plain words for the notice (Benjamin, 2026-10-02: "a bit more readable").
 PLAIN = [
@@ -57,10 +67,54 @@ def plain(comment):
     return None
 
 
-def heading(issue, who):
+def heading(issue, who, n=70):
     """"AGE-28 Production settings for Render staging, Builder-1": the plan's numbering ("8s-1: ") left out."""
     title = re.sub(r"^\s*[\w.-]{1,8}:\s+", "", issue.get("title") or "")
-    return f"{issue.get('identifier', issue['id'])} {short(title, 70)}" + (f", {who}" if who else "")
+    return f"{issue.get('identifier', issue['id'])} {short(title, n)}" + (f", {who}" if who else "")
+
+
+def situation(latest, capped, name, issues, watch):
+    """What the Studio as a whole is doing: paused by the usage cap, running again, tasks finished."""
+    out = []
+    open_by_agent = {}
+    for i in issues:
+        if i.get("status") in ("todo", "in_progress", "blocked") and i.get("assigneeAgentId"):
+            open_by_agent.setdefault(i["assigneeAgentId"], []).append(i)
+    by_id = {i["id"]: i for i in issues}
+
+    def doing(agent, run=None):
+        issue = by_id.get(((run or {}).get("contextSnapshot") or {}).get("issueId")) or (open_by_agent.get(agent) or [None])[0]
+        return heading(issue, name.get(agent, agent), 45) if issue else name.get(agent, agent)
+
+    if capped and not watch.get("paused"):
+        first = latest[sorted(capped)[0]]
+        detail, reset = CAP_DETAIL.search(first.get("error") or ""), RESETS.search(first.get("error") or "")
+        budget = "this week's" if detail and detail.group(1) == "week" else "this 5-hour"
+        used = f" ({detail.group(2)} of {detail.group(3)} points)" if detail else ""
+        waiting = "; ".join(doing(a, latest[a]) for a in sorted(capped, key=lambda a: name.get(a, a)))
+        watch["paused"] = first["id"]
+        out.append(("notify", f"paused:{first['id']}",
+                    f"Studio paused: {budget} usage budget is used up{used}. Work is saved and waiting: {waiting}. "
+                    f"It carries on by itself after {reset.group(1) if reset else 'the budget resets'}. "
+                    "Nothing for you to do."))
+    elif watch.get("paused") and not capped:
+        busy = [a for a, r in latest.items() if r.get("status") == "running"]
+        out.append(("notify", f"running:{watch.pop('paused')}",
+                    "Studio running again after the usage cap" + (
+                        ": " + "; ".join(doing(a, latest[a]) for a in sorted(busy, key=lambda a: name.get(a, a))) + "."
+                        if busy else ".")))
+
+    done = {i["id"] for i in issues if i.get("status") == "done"}
+    if "done_seen" not in watch:  # first tick: what was already done is not news
+        watch["done_seen"] = sorted(done)
+    else:
+        seen = set(watch["done_seen"])
+        for i in issues:
+            if i["id"] in done and i["id"] not in seen:
+                who = name.get(i.get("assigneeAgentId"), "") if i.get("assigneeAgentId") else ""
+                out.append(("notify", f"finished:{i['id']}", f"Finished: {heading(i, who)}."))
+        watch["done_seen"] = sorted(done)
+    return out
 
 
 def plan(now, agents, runs, issues, watch, quiet=False):
@@ -107,20 +161,20 @@ def plan(now, agents, runs, issues, watch, quiet=False):
                 out.append(("notify", f"silent:{r['id']}",
                             f"{who} has written nothing for {int(silent / 60)} min{where}. Cancelled and retried at 60 min if still silent."))
 
+    capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")
+              and status.get(a) != "paused"}
+    out.extend(situation(latest, capped, name, issues, watch))
+
     day = datetime.date.fromtimestamp(now).isoformat()
     for i in issues:
         st, agent = i.get("status"), i.get("assigneeAgentId")
         head = heading(i, name.get(agent, agent) if agent else None)
         if st == "blocked":
-            run, why, said = latest.get(agent) or {}, plain(i.get("_latest_comment")), i.get("_latest_comment")
-            if run.get("status") == "failed" and CAP_REFUSED.search(run.get("error") or ""):
-                m = RESETS.search(run["error"])
-                text = f"{head}: waiting on the usage cap." + (f" {why}, and the cap refused the retry." if why else "") \
-                    + f" The Clerk wakes it again after {m.group(1) if m else 'the cap resets'}."
-            elif why:
-                text = f"{head}: stuck. {why}. Needs a look."
-            else:
-                text = f"{head}: blocked." + (f" Latest: {short(said, 160)}" if said else "")
+            if agent in capped:
+                continue  # the "paused" notice covers it
+            why, said = plain(i.get("_latest_comment")), i.get("_latest_comment")
+            text = f"{head}: stuck. {why}. Needs a look." if why else \
+                f"{head}: blocked." + (f" Latest: {short(said, 160)}" if said else "")
             out.append(("notify", f"blocked:{i['id']}:{i.get('updatedAt')}", text))
             continue
         if st not in ("todo", "in_progress") or not agent or status.get(agent) != "idle":

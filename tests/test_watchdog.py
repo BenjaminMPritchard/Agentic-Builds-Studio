@@ -55,7 +55,8 @@ class Plan(unittest.TestCase):
         self.assertEqual(watchdog.plan(NOON, AGENTS, [failed("r1", 2)], ISSUES, {}), [])
         self.assertEqual(watchdog.plan(NOON, AGENTS, [failed("r1", 15)], ISSUES, {}, quiet=True), [])
         cap = failed("r1", 30, error="studio-quota: claude cap reached; not starting")
-        self.assertEqual(watchdog.plan(NOON, AGENTS, [cap], ISSUES, {}), [])  # the Clerk's resume_capped has those
+        acts = watchdog.plan(NOON, AGENTS, [cap], ISSUES, {})
+        self.assertEqual([a[0] for a in acts], ["notify"])  # only the "paused" notice: resume_capped wakes them
 
     def test_a_success_clears_the_failure(self):
         watch = {}
@@ -97,20 +98,45 @@ class Plan(unittest.TestCase):
         self.assertEqual(acts[0][0], "notify")
         self.assertIn("AGE-23 Structured data, Builder-1: blocked. Latest: GitHub refused the push", acts[0][2])
 
-    def test_paperclips_disposition_block_after_a_cap_refusal_reads_plainly(self):
+    def test_a_cap_pause_is_one_notice_saying_what_waits_and_when_it_carries_on(self):
+        agents = [{"id": "b1", "name": "Builder-1", "status": "error"}, {"id": "b2", "name": "Builder-2", "status": "error"}]
+        issues = [{**ISSUES[0], "status": "blocked", "title": "8s-1: Production settings for Render staging",
+                   "_latest_comment": "Paperclip could not resolve this issue's missing disposition automatically."},
+                  {**ISSUES[0], "id": "i2", "identifier": "AGE-29", "status": "in_progress",
+                   "title": "8s-2: Render Blueprint", "assigneeAgentId": "b2"}]
+        err = ("Claude exited with code 5: studio-quota: claude cap reached; not starting: studio 5-hour: used 35 + "
+               "reserved 0 + this run 3 + margin 1 = 39 > 22 (resets Oct 2, 10:59pm (Europe/London))")
+        runs = [failed("r1", 30, error=err), {**failed("r2", 25, error=err, agent="b2"), "contextSnapshot": {"issueId": "i2"}}]
+        watch = {}
+        acts = watchdog.plan(NOON, agents, runs, issues, watch)
+        self.assertEqual(acts, [("notify", "paused:r1",
+                                 "Studio paused: this 5-hour usage budget is used up (35 of 22 points). Work is saved "
+                                 "and waiting: AGE-23 Production settings for Render staging, Builder-1; AGE-29 Render "
+                                 "Blueprint, Builder-2. It carries on by itself after 10:59pm. Nothing for you to do.")])
+        self.assertEqual(watchdog.plan(NOON, agents, runs, issues, watch), [])  # told once, blocked issue not repeated
+        again = [{**runs[0], "id": "r3", "status": "running", "error": None, "createdAt": iso(NOON)}, runs[1]]
+        again[1] = {**runs[1], "id": "r4", "status": "succeeded", "error": None, "createdAt": iso(NOON)}
+        acts = watchdog.plan(NOON, agents, again, issues, watch)
+        self.assertEqual(acts[0], ("notify", "running:r1", "Studio running again after the usage cap: AGE-23 "
+                                                          "Production settings for Render staging, Builder-1."))
+
+    def test_paperclips_own_status_comments_are_put_in_plain_words(self):
         issues = [{**ISSUES[0], "status": "blocked", "title": "8s-1: Production settings for Render staging",
                    "_latest_comment": "Paperclip could not resolve this issue's missing disposition automatically. "
                                       "The source assignment is unchanged and a board decision is required."}]
-        cap = failed("r1", 30, error="Claude exited with code 5: studio-quota: claude cap reached; not starting: studio "
-                                     "5-hour: used 35 + reserved 0 + this run 3 + margin 1 = 39 > 22 (resets Oct 2, "
-                                     "10:59pm (Europe/London))")
-        acts = watchdog.plan(NOON, AGENTS, [cap], issues, {})
-        self.assertEqual(acts[0][2], "AGE-23 Production settings for Render staging, Builder-1: waiting on the usage "
-                                     "cap. Its run ended without handing the work on (to review, done or blocked), and "
-                                     "the cap refused the retry. The Clerk wakes it again after 10:59pm.")
         acts = watchdog.plan(NOON, AGENTS, [], issues, {})
         self.assertEqual(acts[0][2], "AGE-23 Production settings for Render staging, Builder-1: stuck. Its run ended "
                                      "without handing the work on (to review, done or blocked). Needs a look.")
+
+    def test_a_finished_task_is_reported_once_but_old_ones_are_not(self):
+        done = [{**ISSUES[0], "status": "done"}]
+        watch = {}
+        self.assertEqual(watchdog.plan(NOON, AGENTS, [], done, watch), [])  # already done before the watchdog looked
+        new = done + [{**ISSUES[0], "id": "i2", "identifier": "AGE-28", "title": "8s-1: Production settings",
+                       "status": "done"}]
+        self.assertEqual(watchdog.plan(NOON, AGENTS, [], new, watch),
+                         [("notify", "finished:i2", "Finished: AGE-28 Production settings, Builder-1.")])
+        self.assertEqual(watchdog.plan(NOON, AGENTS, [], new, watch), [])
 
 
 class Notify(unittest.TestCase):
