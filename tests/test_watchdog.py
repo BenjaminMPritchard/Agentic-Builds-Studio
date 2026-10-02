@@ -84,7 +84,7 @@ class Plan(unittest.TestCase):
         third = watchdog.plan(NOON, agents, runs, issues, watch)
         self.assertEqual([a[0] for a in first + second], ["wake", "wake"])
         self.assertEqual(third[0][0], "notify")
-        self.assertIn("AGE-23 \"Structured data\" (Builder-1) has had no progress for 3 h", third[0][2])
+        self.assertIn("AGE-23 Structured data, Builder-1: no progress for 3 h", third[0][2])
 
     def test_work_waiting_for_review_or_a_human_is_not_idle(self):
         agents = [{"id": "b1", "name": "Builder-1", "status": "idle"}]
@@ -95,7 +95,22 @@ class Plan(unittest.TestCase):
         issues = [{**ISSUES[0], "status": "blocked", "_latest_comment": "GitHub refused the push: no workflows permission"}]
         acts = watchdog.plan(NOON, AGENTS, [], issues, {})
         self.assertEqual(acts[0][0], "notify")
-        self.assertIn("AGE-23 \"Structured data\" is blocked. Latest: GitHub refused the push", acts[0][2])
+        self.assertIn("AGE-23 Structured data, Builder-1: blocked. Latest: GitHub refused the push", acts[0][2])
+
+    def test_paperclips_disposition_block_after_a_cap_refusal_reads_plainly(self):
+        issues = [{**ISSUES[0], "status": "blocked", "title": "8s-1: Production settings for Render staging",
+                   "_latest_comment": "Paperclip could not resolve this issue's missing disposition automatically. "
+                                      "The source assignment is unchanged and a board decision is required."}]
+        cap = failed("r1", 30, error="Claude exited with code 5: studio-quota: claude cap reached; not starting: studio "
+                                     "5-hour: used 35 + reserved 0 + this run 3 + margin 1 = 39 > 22 (resets Oct 2, "
+                                     "10:59pm (Europe/London))")
+        acts = watchdog.plan(NOON, AGENTS, [cap], issues, {})
+        self.assertEqual(acts[0][2], "AGE-23 Production settings for Render staging, Builder-1: waiting on the usage "
+                                     "cap. Its run ended without handing the work on (to review, done or blocked), and "
+                                     "the cap refused the retry. The Clerk wakes it again after 10:59pm.")
+        acts = watchdog.plan(NOON, AGENTS, [], issues, {})
+        self.assertEqual(acts[0][2], "AGE-23 Production settings for Render staging, Builder-1: stuck. Its run ended "
+                                     "without handing the work on (to review, done or blocked). Needs a look.")
 
 
 class Notify(unittest.TestCase):
