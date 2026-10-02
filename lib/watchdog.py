@@ -23,6 +23,13 @@ SILENT_CANCEL = 60 * 60
 IDLE_AFTER = 2 * 3600
 IDLE_WAKES_PER_DAY = 2
 CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
+RESETS = re.compile(r"resets (?:\w+ \d+, )?([^()]+?)\s*\(")
+# Paperclip's own status comments, in plain words for the notice (Benjamin, 2026-10-02: "a bit more readable").
+PLAIN = [
+    (re.compile(r"disposition", re.I), "Its run ended without handing the work on (to review, done or blocked)"),
+    (re.compile(r"environment lease", re.I), "The last run's clean-up has not finished"),
+    (re.compile(r"no live execution path", re.I), "Nothing is scheduled to carry it on"),
+]
 
 
 def epoch(iso):
@@ -40,6 +47,20 @@ def signature(run):
 def short(text, n=140):
     text = " ".join((text or "").split())
     return text if len(text) <= n else text[:n - 1] + "…"
+
+
+def plain(comment):
+    """Paperclip's status comment in plain words, or None when it is not one of Paperclip's."""
+    for pattern, text in PLAIN:
+        if pattern.search(comment or ""):
+            return text
+    return None
+
+
+def heading(issue, who):
+    """"AGE-28 Production settings for Render staging, Builder-1": the plan's numbering ("8s-1: ") left out."""
+    title = re.sub(r"^\s*[\w.-]{1,8}:\s+", "", issue.get("title") or "")
+    return f"{issue.get('identifier', issue['id'])} {short(title, 70)}" + (f", {who}" if who else "")
 
 
 def plan(now, agents, runs, issues, watch, quiet=False):
@@ -89,10 +110,18 @@ def plan(now, agents, runs, issues, watch, quiet=False):
     day = datetime.date.fromtimestamp(now).isoformat()
     for i in issues:
         st, agent = i.get("status"), i.get("assigneeAgentId")
-        label = f"{i.get('identifier', i['id'])} \"{short(i.get('title'), 50)}\""
+        head = heading(i, name.get(agent, agent) if agent else None)
         if st == "blocked":
-            out.append(("notify", f"blocked:{i['id']}:{i.get('updatedAt')}", f"{label} is blocked." + (
-                f" Latest: {short(i.get('_latest_comment'), 160)}" if i.get("_latest_comment") else "")))
+            run, why, said = latest.get(agent) or {}, plain(i.get("_latest_comment")), i.get("_latest_comment")
+            if run.get("status") == "failed" and CAP_REFUSED.search(run.get("error") or ""):
+                m = RESETS.search(run["error"])
+                text = f"{head}: waiting on the usage cap." + (f" {why}, and the cap refused the retry." if why else "") \
+                    + f" The Clerk wakes it again after {m.group(1) if m else 'the cap resets'}."
+            elif why:
+                text = f"{head}: stuck. {why}. Needs a look."
+            else:
+                text = f"{head}: blocked." + (f" Latest: {short(said, 160)}" if said else "")
+            out.append(("notify", f"blocked:{i['id']}:{i.get('updatedAt')}", text))
             continue
         if st not in ("todo", "in_progress") or not agent or status.get(agent) != "idle":
             continue
@@ -112,5 +141,5 @@ def plan(now, agents, runs, issues, watch, quiet=False):
                             f"Nothing has happened on this issue for {hours} h; carry on with it"))
         else:
             out.append(("notify", f"idle:{i['id']}:{day}",
-                        f"{label} ({name.get(agent, agent)}) has had no progress for {hours} h, after 2 wakes today. Needs a look."))
+                        f"{head}: no progress for {hours} h, after 2 wakes today. Needs a look."))
     return out
