@@ -38,6 +38,14 @@ Guard blocks `gh pr merge` and raw API merges (`…/pulls/N/merge`) by agents. T
 is defence in depth. The gate becomes the *only* path only when agents' GitHub
 credentials cannot merge (see below).
 
+## Ready for a human merge
+
+When the only reasons to refuse are protected paths, every other condition has been proven: the issue is
+in review, the review approves the exact head, and the required checks are green. The gate then labels the PR
+`ready-for-benjamin`. Benjamin merges labelled PRs only. A PR without the label is still in review, even when
+it is open and green (2026-10-02: he had merged #47 and #48 before their review, and #48 went into another
+agent's branch). Dependabot is set to security fixes only and has no Paperclip issue, so its PRs are merged by hand.
+
 ## Merge credential
 
 If the policy has `"github_app": {"app_id": 5109343, "key_path": "/etc/studio/merge-gate-app.pem"}`, the gate
