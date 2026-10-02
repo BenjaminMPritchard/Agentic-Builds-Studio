@@ -31,7 +31,7 @@ Benjamin's caps (research sections 2–3): studio use at most **22%** of each Cl
   - a blocked issue is reported once, with its latest comment.
 
   Nothing is woken during quiet hours (22:00-07:00). Notices (`lib/notify.py`) go to the digest and
-  `log/notify.jsonl`, and to Benjamin's phone once `/etc/studio/notify.json` names an ntfy topic. Night notices
+  `log/notify.jsonl`, and to Benjamin's phone through a private ntfy server on the tailnet (`deploy/ntfy-setup.sh`). Night notices
   are held and sent as one message after 07:00. The merge gate also sends one when it labels a PR
   `ready-for-benjamin`. `bin/studio-watchdog` (systemd timer, every 10 minutes) reports Paperclip not answering
   or the Clerk not ticking, which the Clerk cannot report about itself.
