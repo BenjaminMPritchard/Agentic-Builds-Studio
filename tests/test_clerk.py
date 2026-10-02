@@ -371,6 +371,13 @@ class EnsureReview(unittest.TestCase):
         self.assertEqual(stages, {"t1": "pr", "t2": "cp"})  # the Principal's own work goes to Codex-Principal
         self.assertEqual(len(self.fp.patches), 2)
 
+    def test_a_review_policy_missing_only_from_the_issue_list_is_kept(self):
+        self.fp.add(id="t1", identifier="AGE-6", title="7a", status="in_progress", projectId="mothers", assigneeAgentId="pr",
+                    executionPolicy={"mode": "normal", "stages": [{"type": "review"}, {"type": "review"}]})
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [])
+        c.ensure_review([{**self.fp.issues["t1"], "executionPolicy": None}], {}, policy=self.policy)  # as the list shows it
+        self.assertEqual(self.fp.patches, [])
+
     def test_left_alone_when_reviewed_already_not_code_not_authorised_or_not_active(self):
         self.fp.add(id="a", title="x", status="in_progress", projectId="mothers", assigneeAgentId="b1",
                     executionPolicy={"mode": "normal", "stages": []})

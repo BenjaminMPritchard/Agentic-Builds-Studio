@@ -313,7 +313,12 @@ class Clerk:
                     or i.get("executionPolicy") or not self.BUILDING.match(who):
                 continue
             reviewer = by_name.get("Codex-Principal" if who == "Principal" else "Principal")
-            if not reviewer:
+            if not reviewer or self.handled(f"review-stage:{i['id']}"):
+                continue
+            # Paperclip's issue list always shows executionPolicy as null; only the issue itself has it
+            # (2026-10-02: AGE-6's two-stage review was replaced because the list said it had none).
+            if self.pc.get_issue(i["id"]).get("executionPolicy"):
+                self.mark(f"review-stage:{i['id']}")
                 continue
             stage = {"type": "review", "participants": [{"type": "agent", "agentId": reviewer}], "approvalsNeeded": 1}
             if self.once(f"review-stage:{i['id']}", f"review stage on {i.get('identifier')}", self.pc.patch_issue,
