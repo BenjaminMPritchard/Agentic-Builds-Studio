@@ -236,6 +236,17 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("sed -i s/x/y/ policy/autonomous-merge.json"), 2)
 
 
+class PullRequestBase(unittest.TestCase):
+    """2026-10-01: Mothers PR #48 was based on #47's branch, merged into it, and never reached main."""
+
+    def test_a_pull_request_targets_main_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(run("Bash", {"command": "gh pr create --title x --body y"}, d), 0)
+            self.assertEqual(run("Bash", {"command": "gh pr create --base main --title x"}, d), 0)
+            self.assertEqual(run("Bash", {"command": "gh pr create -B agent/AGE-22-seo --title x"}, d), 2)
+            self.assertEqual(run("Bash", {"command": "gh pr create --base=agent/AGE-22-seo"}, d), 2)
+            self.assertEqual(run("Bash", {"command": "gh pr edit 48 --base agent/AGE-22-seo"}, d), 2)
+
 class WrapUp(unittest.TestCase):
     """Near a usage cap the run is asked to wrap up: Guard then allows only saving and handing over the work."""
 

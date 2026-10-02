@@ -27,6 +27,10 @@ POLICY_PATH = os.path.join(ROOT, "policy", "autonomous-merge.json")
 ALWAYS_PROTECTED = ["CONSTITUTION.md", "CLAUDE.md", ".claude/**", "docs/PLAN.md", ".studio/project.yaml",
                     ".studio-allowed-paths", ".github/**", "CODEOWNERS", "policy/**"]
 BLOCKING_LABELS = {"needs-human", "needs-board", "b2", "deviation", "do-not-merge"}
+# Put on a PR that passed every check except its protected paths: it is reviewed, green and recorded, and only
+# a human may merge it. Benjamin merges labelled PRs; any other open agent PR is still on its way through review.
+READY_FOR_HUMAN = "ready-for-benjamin"
+PROTECTED_REASON = "pull request touches protected path "
 MERGE_METHODS = {"squash", "merge", "rebase"}
 PASSING = {"success", "neutral", "skipped"}
 AUTHORITY = re.compile(r"^\s*(?:[-*]\s*)?\*\*Authority:\*\*\s*(.*?)\s*$", re.M)
@@ -267,7 +271,7 @@ def evaluate(policy, request, ev):
     protected = ALWAYS_PROTECTED + proj["protected_paths"]
     for p in paths:
         if any(match(p, pat) for pat in protected):
-            no(f"pull request touches protected path {p}")
+            no(f"{PROTECTED_REASON}{p}")
         if proj.get("mergeable_paths") and not any(match(p, pat) for pat in proj["mergeable_paths"]):
             no(f"{p} is outside the project's autonomously mergeable paths")
     if authority == "B" and plan:
@@ -356,6 +360,7 @@ def collect(pc, request, gh=gh_api):
     """Evidence for `evaluate`. Missing pieces stay None so evaluation refuses."""
     ev = {}
     issue = pc.get_issue(request["issue_id"])
+    request["issue_id"] = issue["id"]  # the Director may name the issue by its identifier (AGE-6)
     ev["issue"] = issue
     ev["plan"] = pc.get_document(issue["id"], "plan")
     ev["interactions"] = pc.interactions(issue["id"])
@@ -391,7 +396,22 @@ def record(data_dir, entry):
         f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **entry}) + "\n")
 
 
-def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, data_dir=None):
+def only_protected(reasons):
+    """True when the protected paths are the only reasons to refuse: the PR is ready for a human merge."""
+    return bool(reasons) and all(r.startswith(PROTECTED_REASON) for r in reasons)
+
+
+def label_ready(request, token):
+    env = gh_env(token)
+    subprocess.run(["gh", "label", "create", READY_FOR_HUMAN, "--repo", request["repo"], "--force", "--color", "0e8a16",
+                    "--description", "Reviewed and green; touches protected files, so a human merges it"],
+                   capture_output=True, text=True, timeout=60, env=env)
+    r = subprocess.run(["gh", "pr", "edit", str(request["pr"]), "--repo", request["repo"], "--add-label", READY_FOR_HUMAN],
+                       capture_output=True, text=True, timeout=60, env=env)
+    return r.returncode == 0
+
+
+def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, data_dir=None, label=None):
     """Collect, evaluate, record, and merge only if allowed and asked. Returns (allowed, reasons, merged)."""
     data_dir = data_dir or os.environ.get("STUDIO_DATA", "/srv/studio/data")
     proj, token = None, None
@@ -411,6 +431,8 @@ def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, dat
         reasons = [f"could not collect evidence: {type(e).__name__}: {str(e)[:160]}"]
     allowed = not reasons and proj is not None
     entry = {**request, "allowed": allowed, "reasons": reasons, "merge_requested": do_merge}
+    if do_merge and proj is not None and only_protected(reasons):
+        entry["labelled"] = (label or label_ready)(request, token)
     record(data_dir, entry)  # no audit record, no merge
     if not (allowed and do_merge):
         return allowed, reasons, False

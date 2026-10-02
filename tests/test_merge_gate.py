@@ -427,7 +427,7 @@ class FakePC:
         self._issue, self._plan, self._interactions = issue, plan, (interactions if interactions is not None else [])
 
     def get_issue(self, issue_id):
-        return self._issue if self._issue.get("id") == issue_id else None
+        return self._issue if issue_id in (self._issue.get("id"), self._issue.get("identifier")) else None
 
     def get_document(self, issue_id, key):
         return self._plan
@@ -526,6 +526,33 @@ class CollectRunTests(unittest.TestCase):
         self.assertEqual(len(self.loglines()), 2)
         for line in self.loglines():
             json.loads(line)  # each line is valid JSON
+
+    def test_an_issue_named_by_its_identifier_is_read(self):
+        # 2026-10-01: the Director ran the gate with AGE-6 and it refused with "issue detail contract changed".
+        pc = FakePC(copy.deepcopy(BASE_ISSUE))
+        allowed, reasons, merged = run(pc, {**self.request(), "issue_id": "AGE-3"}, do_merge=False, policy=policy(),
+                                       gh=make_fake_gh(), data_dir=self.data_dir)
+        self.assertTrue(allowed, reasons)
+
+    def test_a_pr_refused_only_for_protected_paths_is_labelled_for_benjamin(self):
+        labelled = []
+        files = [{"filename": "src/a.py", "previous_filename": None}, {"filename": "CLAUDE.md", "previous_filename": None}]
+        pc = FakePC(copy.deepcopy(BASE_ISSUE))
+        pr = gh_pr_json(); pr["changed_files"] = 2
+        allowed, reasons, merged = run(pc, self.request(), do_merge=True, policy=policy(), gh=make_fake_gh(pr=pr, files=files),
+                                       merge_cmd=["false"], data_dir=self.data_dir,
+                                       label=lambda req, tok: labelled.append(req["pr"]) or True)
+        self.assertEqual((allowed, merged), (False, False))
+        self.assertEqual(labelled, [7])
+        self.assertTrue(json.loads(self.loglines()[-1])["labelled"])
+
+    def test_a_pr_with_any_other_refusal_is_not_labelled(self):
+        labelled = []
+        files = [{"filename": "CLAUDE.md", "previous_filename": None}]
+        issue = copy.deepcopy(BASE_ISSUE); issue["status"] = "in_progress"
+        run(FakePC(issue), self.request(), do_merge=True, policy=policy(), gh=make_fake_gh(files=files),
+            data_dir=self.data_dir, label=lambda req, tok: labelled.append(req["pr"]) or True)
+        self.assertEqual(labelled, [])
 
     def test_run_refused_does_not_merge(self):
         marker = os.path.join(self.data_dir, "marker")

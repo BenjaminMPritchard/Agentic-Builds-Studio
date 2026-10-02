@@ -98,8 +98,8 @@ class Paperclip:
             offset += len(page)
 
     def get_issue(self, issue_id):
-        issue = self.call("GET", f"/api/issues/{issue_id}")
-        if not isinstance(issue, dict) or issue.get("id") != issue_id:
+        issue = self.call("GET", f"/api/issues/{issue_id}")  # an id or an identifier such as AGE-6
+        if not isinstance(issue, dict) or issue_id not in (issue.get("id"), issue.get("identifier")):
             raise ValueError("Paperclip issue detail contract changed")
         return issue
 
