@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""The watchdog's watchdog: checks from outside Paperclip that Paperclip answers and the Clerk is ticking.
+
+The Clerk's own watchdog step (lib/watchdog.py) runs inside Paperclip, so it cannot report Paperclip hanging or
+the Clerk stopping. This runs from a systemd timer as paperclip (deploy/studio-watchdog.timer, every 10 minutes)
+and sends one notice per problem per hour through lib/notify. It only reports: restarting Paperclip would kill
+the agents' running work, so that stays Benjamin's call.
+"""
+import json
+import os
+import sys
+import time
+import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import notify  # noqa: E402
+
+DATA = os.environ.get("STUDIO_DATA", "/srv/studio/data")
+URL = os.environ.get("PAPERCLIP_API_URL", "http://localhost:3100").rstrip("/")
+CLERK_STALE = 30 * 60
+REPEAT = 3600
+
+
+def problems(now, url=URL, data=DATA):
+    found = []
+    try:
+        with urllib.request.urlopen(f"{url}/api/health", timeout=20) as r:
+            if r.status != 200:
+                found.append(("paperclip", f"Paperclip health check answered {r.status}."))
+    except Exception as e:
+        found.append(("paperclip", f"Paperclip is not answering ({type(e).__name__}). Agents cannot run. "
+                                   "Check: systemctl status paperclip"))
+        return found  # the Clerk cannot tick without Paperclip; one notice is enough
+    try:
+        age = now - os.path.getmtime(os.path.join(data, "clerk-state.json"))
+    except OSError:
+        age = None
+    if age is None or age > CLERK_STALE:
+        found.append(("clerk", "The Clerk has not run for " + (f"{int(age / 60)} min" if age else "a while") +
+                      ", so nothing is being retried or reported. Check the Clerk agent in Paperclip."))
+    return found
+
+
+def main(now=None):
+    now = time.time() if now is None else now
+    path = os.path.join(DATA, "watchdog-outside.json")
+    try:
+        with open(path) as f:
+            last = json.load(f)
+    except (OSError, ValueError):
+        last = {}
+    for kind, text in problems(now):
+        if now - last.get(kind, 0) >= REPEAT:
+            notify.send(DATA, text, now)
+            last[kind] = now
+    with open(path, "w") as f:
+        json.dump(last, f)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

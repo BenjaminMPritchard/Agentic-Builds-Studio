@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from lib import deploy, github_app, merge_gate, quota, records
+from lib import deploy, github_app, merge_gate, notify, quota, records, watchdog
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
@@ -112,8 +112,8 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.resume_capped, self.record_runs,
-                     self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.resume_capped, self.watchdog,
+                     self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -307,6 +307,34 @@ class Clerk:
             if self.once(f"resume-capped:{r['id']}", f"wake {a.get('name', agent_id)} after a cap refusal",
                          self.pc.wake_agent, agent_id, True, "Usage cap refused your last run; trying again", issue):
                 self.log("resume_capped", agent=a.get("name", agent_id), run=r["id"], issue=issue)
+
+    def watchdog(self, issues, by_id):
+        """Stuck work: retry once, then tell Benjamin in one line (lib/watchdog.py, lib/notify.py)."""
+        seen = []
+        for i in issues:
+            key = f"blocked:{i['id']}:{i.get('updatedAt')}"
+            if i.get("status") == "blocked" and not self.handled(key):
+                latest = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
+                i = {**i, "_latest_comment": (latest[0].get("body") or "").strip().split("\n")[0] if latest else ""}
+            seen.append(i)
+        now = self.now()
+        for kind, key, *args in watchdog.plan(now, self.pc.list_agents(self.cid), self.pc.runs(self.cid, limit=200),
+                                              seen, self.state.setdefault("watch", {}), notify.quiet(now)):
+            if self.handled(key):
+                continue
+            if kind == "wake":
+                agent, issue, reason = args
+                self.act(f"watchdog wake {agent}", self.pc.wake_agent, agent, True, reason, issue)
+            elif kind == "cancel":
+                self.act(f"watchdog cancel run {args[0]}", self.pc.cancel_run, args[0])
+            elif kind == "notify":
+                self.needs_board.append(args[0])
+                if not self.dry:
+                    notify.send(self.data, args[0], now)
+            self.mark(key)
+            self.log("watchdog", kind=kind, key=key)
+        if not self.dry:
+            notify.flush(self.data, now)
 
     # ---- 5: efficiency records (research 11), append-only ------------------------------------
     def record_runs(self, issues, by_id):

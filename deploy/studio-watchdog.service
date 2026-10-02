@@ -1,0 +1,11 @@
+# Checks from outside Paperclip that Paperclip answers and the Clerk ticks (bin/studio-watchdog). Install:
+#   sudo cp /srv/studio/company/deploy/studio-watchdog.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now studio-watchdog.timer
+[Unit]
+Description=Studio watchdog: Paperclip and the Clerk are alive
+
+[Service]
+Type=oneshot
+User=paperclip
+Group=paperclip
+ExecStart=/srv/studio/company/bin/studio-watchdog

@@ -18,7 +18,7 @@ import subprocess
 import time
 from datetime import datetime
 
-from lib import github_app
+from lib import github_app, notify
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLICY_PATH = os.path.join(ROOT, "policy", "autonomous-merge.json")
@@ -433,6 +433,9 @@ def run(pc, request, do_merge=False, policy=None, gh=gh_api, merge_cmd=None, dat
     entry = {**request, "allowed": allowed, "reasons": reasons, "merge_requested": do_merge}
     if do_merge and proj is not None and only_protected(reasons):
         entry["labelled"] = (label or label_ready)(request, token)
+        if entry["labelled"]:
+            notify.send(data_dir, f"PR ready for your merge: https://github.com/{request['repo']}/pull/{request['pr']} "
+                                  "(reviewed and green; touches protected files)")
     record(data_dir, entry)  # no audit record, no merge
     if not (allowed and do_merge):
         return allowed, reasons, False

@@ -23,6 +23,18 @@ Benjamin's caps (research sections 2–3): studio use at most **22%** of each Cl
 - **After a refusal:** Paperclip retries a refused run a few times and then leaves the agent in error. The
   Clerk wakes it again on the same issue 20 minutes after each refusal (`resume_capped`), so work restarts
   by itself once the window has room. Paused agents are left alone.
+- **Watchdog** (Benjamin, 2026-10-02: stuck work must retry or reach him, concisely). Each Clerk tick
+  (`lib/watchdog.py`):
+  - a failed run is retried once on its issue after 10 minutes, and a second identical failure is reported;
+  - a run silent for 30 minutes is reported, and at 60 minutes it is cancelled and retried;
+  - todo or in-progress work idle for 2 hours is woken, at most twice a day, then reported;
+  - a blocked issue is reported once, with its latest comment.
+
+  Nothing is woken during quiet hours (22:00-07:00). Notices (`lib/notify.py`) go to the digest and
+  `log/notify.jsonl`, and to Benjamin's phone once `/etc/studio/notify.json` names an ntfy topic. Night notices
+  are held and sent as one message after 07:00. The merge gate also sends one when it labels a PR
+  `ready-for-benjamin`. `bin/studio-watchdog` (systemd timer, every 10 minutes) reports Paperclip not answering
+  or the Clerk not ticking, which the Clerk cannot report about itself.
 - **Tonight-only caps:** `studio-quota override --provider P --window five_hour --points N --until
   YYYY-MM-DDTHH:MM --reason TEXT` raises a cap until a set time, then `policy/quota.json` applies again.
 - **Readings:** `claude -p /usage` as `paperclip` (no model call; the run's token and any API key are

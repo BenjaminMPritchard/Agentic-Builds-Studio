@@ -128,6 +128,14 @@ class Paperclip:
     def update_work_product(self, product_id, **fields):
         return self.call("PATCH", f"/api/work-products/{product_id}", fields)
 
+    def comments(self, issue_id):
+        r = self.call("GET", f"/api/issues/{issue_id}/comments")
+        return r if isinstance(r, list) else (r or {}).get("comments", [])
+
+    def cancel_run(self, run_id):
+        """POST /api/heartbeat-runs/{id}/cancel: Paperclip stops the run's process."""
+        return self.call("POST", f"/api/heartbeat-runs/{run_id}/cancel", {})
+
     def comment(self, issue_id, text):
         return self.call("POST", f"/api/issues/{issue_id}/comments", {"body": text})
 
