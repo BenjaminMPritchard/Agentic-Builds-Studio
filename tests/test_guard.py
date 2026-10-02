@@ -247,6 +247,20 @@ class PullRequestBase(unittest.TestCase):
             self.assertEqual(run("Bash", {"command": "gh pr create --base=agent/AGE-22-seo"}, d), 2)
             self.assertEqual(run("Bash", {"command": "gh pr edit 48 --base agent/AGE-22-seo"}, d), 2)
 
+class Workflows(unittest.TestCase):
+    """2026-10-01: GitHub refused every push of Phase 7a because one commit changed .github/workflows/check.yml."""
+
+    def test_workflow_files_are_refused_with_the_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            git(d, "init", "-q", "-b", "agent/1-x")
+            f = os.path.join(d, ".github", "workflows", "check.yml")
+            self.assertEqual(run("Edit", {"file_path": f, "new_string": "x"}, d), 2)
+            self.assertEqual(run("Bash", {"command": "sed -i s/a/b/ .github/workflows/check.yml"}, d), 2)
+            r = subprocess.run([GUARD], input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": f, "content": "x"},
+                                                          "cwd": d}), capture_output=True, text=True)
+            self.assertIn("cannot push changes under .github/workflows/", r.stderr)
+            self.assertEqual(run("Edit", {"file_path": os.path.join(d, ".github", "dependabot.yml"), "new_string": "x"}, d), 0)
+
 class WrapUp(unittest.TestCase):
     """Near a usage cap the run is asked to wrap up: Guard then allows only saving and handing over the work."""
 

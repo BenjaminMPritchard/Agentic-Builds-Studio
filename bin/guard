@@ -17,7 +17,13 @@ import urllib.request
 LIVE_KEY = re.compile(r"\b(sk|pk|rk)_live_[A-Za-z0-9]+")
 PROTECTED = ["CLAUDE.md", ".claude/**", "docs/PLAN.md", "CONSTITUTION.md", ".studio/project.yaml",
              ".studio-allowed-paths", "policy/**"]
-NEVER_ALLOWED = ["CONSTITUTION.md", ".studio-allowed-paths", "policy/**"]  # not even a task packet can unlock these
+NEVER_ALLOWED = ["CONSTITUTION.md", ".studio-allowed-paths", "policy/**", ".github/workflows/**"]  # not even a task packet can unlock these
+PROTECTED += [".github/workflows/**"]
+# GitHub refuses any push by the agents' App that changes a workflow file, so such a commit can never leave the
+# worktree (2026-10-01: a day of Phase 7a was stranded behind one workflow commit).
+WORKFLOWS = ("the agents' GitHub App cannot push changes under .github/workflows/, so a commit with this change "
+             "could never be pushed. Leave the file alone and put the exact change in the PR description under "
+             "'For Benjamin'; he applies it")
 MAIN = r"(main|master)"
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2(?=\s|$)", re.S)
 # Programs that modify their arguments: any protected path among the arguments counts.
@@ -82,6 +88,8 @@ def match(relpath, pattern):
 def check_protected(relpath, cwd):
     for pat in PROTECTED:
         if match(relpath, pat):
+            if match(relpath, ".github/workflows/**"):
+                block(f"{relpath}: {WORKFLOWS}")
             if any(match(relpath, n) for n in NEVER_ALLOWED):
                 block(f"{relpath} can only be changed by a human")
             if not any(match(relpath, a) for a in allowed_paths(cwd)):
@@ -219,6 +227,8 @@ def check_bash(cmd, cwd):
         if not SAFE_DB.match(name):
             block(f"dropping database '{name}' (only mc_*, test_mc_*, *_e2e allowed)")
     for path in protected_writes(cmd, cwd):
+        if match(path, ".github/workflows/**"):
+            block(f"command appears to modify {path}: {WORKFLOWS}")
         if any(match(path, n) for n in NEVER_ALLOWED) or not any(match(path, a) for a in allowed_paths(cwd)):
             block(f"command appears to modify protected path {path}")
 

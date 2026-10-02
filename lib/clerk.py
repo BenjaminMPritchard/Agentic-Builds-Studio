@@ -112,8 +112,8 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.resume_capped, self.watchdog,
-                     self.record_runs, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.ensure_review, self.caps, self.resume_capped,
+                     self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -191,8 +191,14 @@ class Clerk:
         pending = any(not (c.get("conclusion") or c.get("state")) or (c.get("status") or "") in ("IN_PROGRESS", "QUEUED") for c in checks)
         label = "merged" if pr.get("mergedAt") else pr["state"].lower()
         label += " · checks red" if red else (" · checks running" if pending else " · checks green" if checks else "")
-        self.once(f"pr:{iid}:{n}:{pr.get('headRefOid')}:{label}", "comment", self.pc.comment, iid,
-                  f"[Clerk] PR #{n} is {label}. {pr.get('url', '')}")
+        # A comment wakes the issue's agent (Paperclip wakes the assignee on any comment not its own), so the Clerk
+        # comments only when the agent has something to do: red checks to fix, or a PR closed without merging.
+        # 2026-10-02: about 16 runs did nothing but read "PR is open, checks green" and end.
+        if red or label.startswith("closed"):
+            self.once(f"pr:{iid}:{n}:{pr.get('headRefOid')}:{label}", "comment", self.pc.comment, iid,
+                      f"[Clerk] PR #{n} is {label}. {pr.get('url', '')}")
+        else:
+            self.log("pr_state", task=iid, pr=n, state=label)
         status = "merged" if pr.get("mergedAt") else "closed" if pr["state"] == "CLOSED" else None
         if status and product.get("status") != status:
             self.once(f"product:{product['id']}:{status}", "work-product", self.pc.update_work_product,
@@ -207,9 +213,11 @@ class Clerk:
                              comment=f"[Clerk] {RED_LIMIT} red check runs. Handing to the Principal."):
                     self.notes.append(f"{issue['title']}: 3 red checks, handed to the Principal")
         elif pr["state"] == "OPEN" and not red and not pending and checks:
+            # The Director runs the merge gate; Benjamin hears only of PRs the gate labels ready-for-benjamin
+            # (2026-10-02: this line used to ask him to merge every green PR, so he merged them before review).
             if not self.seen(f"review-ready:{iid}:{pr.get('headRefOid')}"):
                 self.notes.append(f"{issue['title']}: PR #{n} green, waiting for review/merge")
-                self.needs_board.append(f"Merge PR #{n} ({issue['title']}) once reviewed")
+                self.needs_director.append(f"PR #{n} ({issue['title']}) is green: once reviewed, run the merge gate")
 
     def merged_means_done(self, issue, prs, issues):
         """Done only when every recorded PR is closed, at least one merged, and the assignee has already put the
@@ -283,6 +291,34 @@ class Clerk:
                                f"{s['caps']['week']} this week; account {s['account']['five_hour']:g}% / "
                                f"{s['account']['week']:g}%; {s['active_runs']} runs active; reading {age} min old")
         self.log("caps", usage=self.state["usage"])
+
+    BUILDING = re.compile(r"^(Builder-\d+|Codex-Builder|Principal|Codex-Principal)$")
+
+    def ensure_review(self, issues, by_id, policy=None):
+        """Give each code task in an autonomously merged project a Paperclip review stage when it has none:
+        the Principal reviews, or Codex-Principal when the Principal wrote it. 2026-10-02: the 6d tasks had no
+        reviewer, so Paperclip let the Builder park its work in review only behind an hourly self-check, and
+        the merge gate never saw an approval, so every PR fell to Benjamin. The packet's own review policy,
+        when it sets one, is never replaced."""
+        try:
+            policy = policy or merge_gate.load_policy()
+        except (OSError, ValueError):
+            return
+        projects = {pid for pid, p in (policy.get("projects") or {}).items() if isinstance(p, dict) and p.get("enabled")}
+        agents = {a["id"]: a.get("name", "") for a in self.pc.list_agents(self.cid)}
+        by_name = {n: i for i, n in agents.items()}
+        for i in issues:
+            who = agents.get(i.get("assigneeAgentId"), "")
+            if i.get("projectId") not in projects or i.get("status") not in ("todo", "in_progress") \
+                    or i.get("executionPolicy") or not self.BUILDING.match(who):
+                continue
+            reviewer = by_name.get("Codex-Principal" if who == "Principal" else "Principal")
+            if not reviewer:
+                continue
+            stage = {"type": "review", "participants": [{"type": "agent", "agentId": reviewer}], "approvalsNeeded": 1}
+            if self.once(f"review-stage:{i['id']}", f"review stage on {i.get('identifier')}", self.pc.patch_issue,
+                         i["id"], executionPolicy={"mode": "normal", "stages": [stage]}):
+                self.log("review_stage", task=i.get("identifier"), reviewer=agents[reviewer])
 
     def resume_capped(self, issues, by_id):
         """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.
