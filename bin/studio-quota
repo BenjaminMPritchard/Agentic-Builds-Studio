@@ -2,7 +2,8 @@
 """Usage caps for agent runs (lib/quota.py). Called by agent-exec as paperclip, never by agents.
 
   studio-quota admit   --provider claude --agent ID --pid PID [--run RUN_ID]  # prints a run token; exit 5 refused, 6 no reading
-  studio-quota release --provider claude TOKEN [--after-pid PID]  # waits until PID has exited (stopping it at a cap), then settles
+  studio-quota release --provider claude TOKEN [--after-pid PID] [--wrap-up FILE]
+                                                  # waits until PID has exited (asking it to wrap up near a cap), then settles
   studio-quota status  --provider claude                        # JSON
   studio-quota correct --provider claude --window five_hour|week --points N --reason TEXT   # repair, logged
   studio-quota override --provider claude --window five_hour --points 100 --until 2026-10-02T08:00 --reason TEXT
@@ -94,28 +95,50 @@ def reading(provider):
     return READERS[provider]()
 
 
-def check_running(a, path, policy):
-    """One check during a run: stop it (SIGTERM, logged) if studio use has reached a cap. True once stopped.
-    The policy is read again each time, so an override set or ended during the run applies to it."""
+def check_running(a, path, asked):
+    """One check during a run. Near a cap, ask the run to wrap up: write its wrap-up file, which Guard reads and
+    then allows only committing, pushing and handing over (bin/guard). Stop it (SIGTERM, logged) only if it is
+    still running WRAP_UP_MINUTES later, or at once if the account itself is nearly out. Without a wrap-up file
+    (an older agent-exec) the run is stopped at the cap as before. The policy is read again each time, so an
+    override set or ended during the run applies to it. Returns (time asked or None, stopped)."""
     policy = load(a.provider)
     try:
         r = reading(a.provider)
     except quota.QuotaError:
-        return False  # no reading: keep going; admission and release still read
+        return asked, False  # no reading: keep going; admission and release still read
+    headroom = policy.get("wrap_up_points", quota.WRAP_UP_POINTS) if a.wrap_up else 0
     with quota.Ledger(path) as ledger:
-        reasons = quota.over_cap(ledger, r, policy, quota.now())
-    if not reasons:
-        return False
+        reasons = quota.over_cap(ledger, r, policy, quota.now(), headroom)
+    now = quota.now()
+    if asked is None and a.wrap_up:
+        if not reasons:
+            return None, False
+        with open(os.open(a.wrap_up, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640), "w") as f:
+            f.write("; ".join(reasons) + "\n")
+        log_stop(a, "asked to wrap up", reasons)
+        return now, False
+    if asked is None and not reasons:
+        return None, False
+    grace = policy.get("wrap_up_minutes", quota.WRAP_UP_MINUTES) * 60
+    if asked is not None and now - asked < grace and not quota.account_nearly_out(r, policy):
+        return asked, False
+    if asked is not None:
+        reasons = reasons + ([f"still running {int((now - asked) / 60)} min after being asked to wrap up"]
+                             if now - asked >= grace else ["the account is nearly out"])
     try:
         os.kill(a.after_pid, signal.SIGTERM)
     except OSError as e:
         reasons.append(f"could not stop it: {e}")
+    log_stop(a, "stopped", reasons)
+    return asked, True
+
+
+def log_stop(a, what, reasons):
     fd = os.open(os.path.join(LEDGER_DIR, "stops.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(fd, "a") as f:
         f.write(json.dumps({"t": quota.now(), "provider": a.provider, "pid": a.after_pid, "token": a.token,
-                            "reasons": reasons}) + "\n")
-    print(f"studio-quota: stopped run {a.after_pid}: " + "; ".join(reasons), file=sys.stderr)
-    return True
+                            "action": what, "reasons": reasons}) + "\n")
+    print(f"studio-quota: run {a.after_pid} {what}: " + "; ".join(reasons), file=sys.stderr)
 
 
 def main(argv):
@@ -126,6 +149,7 @@ def main(argv):
     ap.add_argument("--agent")
     ap.add_argument("--pid", type=int)
     ap.add_argument("--after-pid", type=int)
+    ap.add_argument("--wrap-up", help="release: the run's wrap-up file, written near a cap to ask it to stop (bin/guard)")
     ap.add_argument("--run", help="the Paperclip run id, kept in the run's usage record")
     ap.add_argument("--window", choices=list(quota.WINDOWS))
     ap.add_argument("--points", type=float)
@@ -159,12 +183,14 @@ def main(argv):
         # the run once studio use reaches a cap. The run's process is sudo, whose real user is still paperclip,
         # so paperclip may signal it, and sudo passes the signal on to the agent CLI.
         every = float(os.environ.get("STUDIO_QUOTA_CHECK", 120))
-        next_check, stopped = time.time() + every, False
+        next_check, asked, stopped = time.time() + every, None, False
         while os.path.exists(f"/proc/{a.after_pid}"):
             if not stopped and every > 0 and time.time() >= next_check:
                 next_check = time.time() + every
-                stopped = check_running(a, path, policy)
+                asked, stopped = check_running(a, path, asked)
             time.sleep(float(os.environ.get("STUDIO_QUOTA_POLL", 5)))
+        if a.wrap_up and os.path.exists(a.wrap_up):
+            os.remove(a.wrap_up)
         time.sleep(float(os.environ.get("STUDIO_QUOTA_SETTLE", 10)))  # late usage reports land in this run
     with quota.Ledger(path) as ledger:
         if a.action == "correct":

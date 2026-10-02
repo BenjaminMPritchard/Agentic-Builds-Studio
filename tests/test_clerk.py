@@ -338,5 +338,48 @@ class ClerkGitHubIdentity(unittest.TestCase):
             clerk_mod.gh_env("o/r", config=self.config, mint=mint)
 
 
+class ResumeCapped(unittest.TestCase):
+    """2026-10-02: agents refused by a usage cap were left in error by Paperclip and nothing woke them after the
+    window reset, so the Studio stayed stopped all night."""
+
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.pc.wake_agent = Paperclip.wake_agent.__get__(self.pc)  # the real call, recorded by the fake
+        self.fp.agents = [{"id": "a1", "name": "Builder-1", "status": "error"},
+                          {"id": "p1", "name": "Principal", "status": "paused"}]
+        self.t = 1_759_400_000  # 2025-10-02T10:13:20Z
+
+    def refused(self, agent, minutes_ago, rid):
+        import datetime
+        at = datetime.datetime.fromtimestamp(self.t - minutes_ago * 60, datetime.timezone.utc)
+        iso = at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        return {"id": rid, "agentId": agent, "status": "failed", "createdAt": iso, "finishedAt": iso,
+                "error": "Claude exited with code 5: studio-quota: claude cap reached; not starting: ...",
+                "contextSnapshot": {"issueId": "w1"}}
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.t)
+        c.resume_capped([], {})
+        c.save()
+
+    def test_an_agent_refused_by_a_cap_is_woken_on_its_issue_once(self):
+        self.fp.runs_ = [self.refused("a1", 30, "r1")]
+        self.tick(); self.tick()
+        self.assertEqual(len(self.fp.wakes), 1)
+        agent, body = self.fp.wakes[0]
+        self.assertEqual((agent, body["source"], body["payload"]), ("a1", "assignment", {"issueId": "w1"}))
+
+    def test_not_too_soon_not_paused_and_not_after_a_later_run(self):
+        self.fp.runs_ = [self.refused("a1", 5, "r1"), self.refused("p1", 60, "r2")]
+        self.tick()
+        self.assertEqual(self.fp.wakes, [])  # 5 minutes is too soon; a paused agent is left alone
+        later = {**self.refused("a1", 1, "r3"), "status": "succeeded", "error": None}
+        self.fp.runs_ = [self.refused("a1", 30, "r1"), later]
+        self.tick()
+        self.assertEqual(self.fp.wakes, [])  # its latest run is not a refusal
+
+
 if __name__ == "__main__":
     unittest.main()

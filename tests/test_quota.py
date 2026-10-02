@@ -349,9 +349,51 @@ class Cli(unittest.TestCase):
         rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
                                 "--after-pid", str(run.pid), token], env=env, stderr=subprocess.PIPE, text=True)
         self.assertEqual(run.wait(timeout=10), -15)  # SIGTERM
-        self.assertIn("reached the cap 22", rel.communicate(timeout=10)[1])
+        self.assertIn("of the 22-point cap", rel.communicate(timeout=10)[1])
         stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
         self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
+
+    def release(self, run, token, wrap_minutes):
+        policy = os.path.join(self.tmp, "policy.json")
+        with open(os.path.join(ROOT, "policy", "quota.json")) as f:
+            p = json.load(f)
+        p["claude"]["wrap_up_minutes"] = wrap_minutes
+        with open(policy, "w") as f:
+            json.dump(p, f)
+        self.flag = os.path.join(self.tmp, "wrap-up-1")
+        env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0", "STUDIO_QUOTA_CHECK": "0.2",
+               "STUDIO_QUOTA_POLICY": policy}
+        return subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
+                                 "--after-pid", str(run.pid), "--wrap-up", self.flag, token],
+                                env=env, stderr=subprocess.PIPE, text=True)
+
+    def stops(self):
+        return [json.loads(l) for l in open(os.path.join(self.tmp, "q", "stops.jsonl"))]
+
+    def test_near_the_cap_a_run_is_asked_to_wrap_up_and_may_end_itself(self):
+        # 2026-10-02, Benjamin: the cap should ask the agent to pause; a graceful stop is the point of it.
+        token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
+        run = subprocess.Popen(["sleep", "2"])
+        self.usage(40 + 21, 12)  # 21 of the 22-point cap: inside it, but within the wrap-up headroom
+        rel = self.release(run, token, wrap_minutes=10)
+        deadline = time.time() + 5
+        while not os.path.exists(self.flag) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertIn("21 of the 22-point cap", open(self.flag).read())
+        self.assertIsNone(run.poll())  # asked, not stopped
+        self.assertEqual(run.wait(timeout=10), 0)  # it ended by itself
+        rel.communicate(timeout=10)
+        self.assertEqual([s["action"] for s in self.stops()], ["asked to wrap up"])
+        self.assertFalse(os.path.exists(self.flag))  # removed with the run
+
+    def test_a_run_that_ignores_the_request_is_stopped_after_the_grace_time(self):
+        token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
+        run = subprocess.Popen(["sleep", "30"])
+        self.usage(40 + 23, 12)
+        rel = self.release(run, token, wrap_minutes=0.01)  # 0.6 seconds
+        self.assertEqual(run.wait(timeout=10), -15)
+        self.assertIn("after being asked to wrap up", rel.communicate(timeout=10)[1])
+        self.assertEqual([s["action"] for s in self.stops()], ["asked to wrap up", "stopped"])
 
     def test_a_run_inside_the_caps_is_left_alone(self):
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
@@ -461,7 +503,7 @@ class AgentExecWiring(unittest.TestCase):
         self.assertIn("setpriv", r.stdout)
         log = self.lines(2)
         self.assertRegex(log[0], r"^admit --provider claude --agent agent-1 --pid \d+ --run run-7$")
-        self.assertRegex(log[1], r"^release --provider claude --after-pid \d+ tok123$")
+        self.assertRegex(log[1], r"^release --provider claude --after-pid (\d+) --wrap-up \S+/wrap-up-\1 tok123$")
 
     def test_a_refused_run_does_not_start(self):
         r = self.exec_(5)

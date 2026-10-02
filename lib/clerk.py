@@ -17,6 +17,8 @@ from lib import deploy, github_app, merge_gate, quota, records
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
 RED_LIMIT = 3
+CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
+RESUME_AFTER = 20 * 60  # seconds after a cap refusal before the agent is woken to try again
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
 QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
@@ -110,7 +112,8 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.record_runs, self.digest):
+        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.caps, self.resume_capped, self.record_runs,
+                     self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -281,6 +284,30 @@ class Clerk:
                                f"{s['account']['week']:g}%; {s['active_runs']} runs active; reading {age} min old")
         self.log("caps", usage=self.state["usage"])
 
+    def resume_capped(self, issues, by_id):
+        """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.
+        Paperclip retries a refused run a few times and then leaves the agent in error; nothing woke it after
+        the window reset, so the Studio stayed stopped all night (2026-10-02). The wake goes through admission
+        again: if there is still no room it is refused once more, and that new refusal is woken 20 minutes later.
+        A refusal costs one usage reading, no model use. Paused agents are left alone."""
+        agents = {a["id"]: a for a in self.pc.list_agents(self.cid)}
+        latest = {}
+        for r in self.pc.runs(self.cid, limit=200):
+            if r.get("createdAt", "") > latest.get(r["agentId"], {}).get("createdAt", ""):
+                latest[r["agentId"]] = r
+        for agent_id, r in latest.items():
+            a = agents.get(agent_id, {})
+            if r.get("status") != "failed" or not CAP_REFUSED.search(r.get("error") or "") \
+                    or a.get("status") not in ("error", "idle"):
+                continue
+            ended = _epoch(r.get("finishedAt") or r.get("createdAt"))
+            if ended is None or self.now() - ended < RESUME_AFTER:
+                continue
+            issue = (r.get("contextSnapshot") or {}).get("issueId")
+            if self.once(f"resume-capped:{r['id']}", f"wake {a.get('name', agent_id)} after a cap refusal",
+                         self.pc.wake_agent, agent_id, True, "Usage cap refused your last run; trying again", issue):
+                self.log("resume_capped", agent=a.get("name", agent_id), run=r["id"], issue=issue)
+
     # ---- 5: efficiency records (research 11), append-only ------------------------------------
     def record_runs(self, issues, by_id):
         """Record every finished run once. Records are evidence, not Paperclip state, so dry-run writes them too."""
@@ -337,6 +364,15 @@ class Clerk:
         json.dump(report, open(os.path.join(out, "cost-report.json"), "w"), indent=2)
         self.log("weekly", out=out)
         return out
+
+
+def _epoch(iso):
+    """Paperclip's ISO times (2026-10-01T20:13:56.216Z) as epoch seconds; None if absent or unreadable."""
+    import datetime
+    try:
+        return datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
 
 
 def _load(path):

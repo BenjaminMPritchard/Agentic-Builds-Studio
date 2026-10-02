@@ -236,5 +236,40 @@ class Guard(unittest.TestCase):
         self.assertEqual(self.bash("sed -i s/x/y/ policy/autonomous-merge.json"), 2)
 
 
+class WrapUp(unittest.TestCase):
+    """Near a usage cap the run is asked to wrap up: Guard then allows only saving and handing over the work."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = self.work = self.tmp.name
+        git(d, "init", "-q", "-b", "agent/1-x")
+        self.flag = os.path.join(d, "wrap-up-1")
+        self.env = {"STUDIO_WRAP_UP": self.flag}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_everything_is_allowed_until_the_cap_asks(self):
+        self.assertEqual(run("Bash", {"command": "python3 build.py"}, self.work, self.env), 0)
+        self.assertEqual(run("Edit", {"file_path": os.path.join(self.work, "a.py"), "new_string": "x"}, self.work, self.env), 0)
+
+    def test_once_asked_only_saving_and_handing_over_are_allowed(self):
+        open(self.flag, "w").write("studio 5-hour use 21 of the 22-point cap\n")
+        allowed = [("Bash", {"command": f"cd {self.work} && git add -A && git commit -m wip && git push"}),
+                   ("Bash", {"command": "gh pr view 3 --json state | head -5"}),
+                   ("Read", {"file_path": os.path.join(self.work, "a.py")}),
+                   ("mcp__paperclip__add_comment", {"body": "handoff"})]
+        for tool, inp in allowed:
+            self.assertEqual(run(tool, inp, self.work, self.env), 0, (tool, inp))
+        r = subprocess.run([GUARD], input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "npm test"},
+                                                      "cwd": self.work}),
+                           capture_output=True, text=True, env={**os.environ, **self.env})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("wrap up (studio 5-hour use 21 of the 22-point cap)", r.stderr)
+        self.assertIn("push", r.stderr)
+        self.assertEqual(run("Edit", {"file_path": os.path.join(self.work, "a.py"), "new_string": "x"}, self.work, self.env), 2)
+        self.assertEqual(run("Bash", {"command": "git status && python3 build.py"}, self.work, self.env), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
