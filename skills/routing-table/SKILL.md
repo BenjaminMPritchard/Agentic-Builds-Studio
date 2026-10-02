@@ -39,9 +39,11 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 | Studio architecture review after a production phase | Architect (rare; skill `architect-review`) | — | one PR of proposals under `upgrades/` |
 | "Done" on B or high-risk work | Clerk evidence | Principal / Codex-Principal reviews | author never accepts own work |
 
-**Only route to active agents.** Codex-Builder and Codex-Principal are `planned` in `policy/routing.json`:
-Codex's sandbox leaves the repository's `.git` read-only, so they cannot commit yet. Codex-Scout (read and
-report only) is active.
+**Only route to active agents.** Codex-Principal is `planned` in `policy/routing.json`: at about 5 points a
+minute, a 28-point Codex window holds only about 6 minutes of it, so it reviews (the Clerk assigns it to the
+Principal's own work) but is not routed to directly yet. Codex-Builder and Codex-Scout are active.
+Benjamin, 2026-10-02: the Codex allowance is under-used. When a Builder task can go to either provider, give
+Codex-Builder its share, and always when Claude's window is short of room.
 
 ## Size every run to fit the window
 
