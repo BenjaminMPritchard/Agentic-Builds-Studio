@@ -32,6 +32,16 @@ class AgentExec(unittest.TestCase):
         self.assertEqual(r.stdout, "")
         self.assertIn("--settings", r.stderr)
 
+    def test_a_refusal_reads_the_prompt_so_paperclip_never_writes_into_a_closed_pipe(self):
+        # Paperclip crashed on that EPIPE (2026-10-02). 1 MB is far more than a pipe holds, so without the read the
+        # write below fails with BrokenPipeError once the wrapper has exited.
+        p = subprocess.Popen([EXEC, "--print", "-"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, env={**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1"})
+        p.stdin.write(b"x" * (1 << 20))
+        p.stdin.close()
+        self.assertEqual(p.wait(timeout=15), 2)
+        self.assertIn(b"--settings", p.stderr.read())
+
 
 if __name__ == "__main__":
     unittest.main()

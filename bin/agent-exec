@@ -17,6 +17,11 @@
 # Usage caps: see the studio-quota step below; a run that would break a cap does not start (exit 5, or 6 with no reading).
 # sudo replaces PATH with secure_path, so PATH is passed on the sudo command line (the rule allows SETENV).
 set -euo pipefail
+# Paperclip writes the prompt to the CLI's stdin after starting this wrapper. A wrapper that refuses and exits first
+# leaves that write going into a closed pipe, and Paperclip 2026.916.1 does not handle the EPIPE: the whole server
+# exits (2026-10-02, a Director run refused in the runtime folder). So a refusal reads the prompt before exiting.
+# After `exec` the CLI owns stdin and this trap is gone.
+trap 'rc=$?; if [ "$rc" -ne 0 ] && [ ! -t 0 ]; then timeout 10 cat >/dev/null 2>&1 || true; fi; exit "$rc"' EXIT
 AGENT_USER="${STUDIO_AGENT_USER:-studio-agent}"
 PROVIDER="${STUDIO_AGENT_PROVIDER:-claude}"
 APP_CONFIG="${STUDIO_AGENTS_APP_CONFIG:-/etc/studio/agents-app.json}"
