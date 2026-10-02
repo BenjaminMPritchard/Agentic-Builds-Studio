@@ -14,6 +14,17 @@ Benjamin's caps (research sections 2–3): studio use at most **22%** of each Cl
   the run does not start (exit 5: cap reached; exit 6: no reading). Paperclip records the run as failed with
   the reason. A detached `studio-quota release --after-pid` waits for the run to end, takes a second reading
   and releases the reservation.
+- **During a run the stop is graceful** (Benjamin, 2026-10-02: "the whole point is its a graceful stop"). Every
+  2 minutes the watcher reads usage. Within 2 points of a cap it writes the run's wrap-up file
+  (`agent-runs/wrap-up-<pid>`), and Guard then allows only git, gh, Paperclip and read-only steps. Guard tells
+  the agent to commit, push, post a handoff and end its run. Only a run still going 10 minutes later is
+  stopped (SIGTERM), or straight away if the account itself is within its margin of 100%. Both events are
+  logged to `quota/stops.jsonl`.
+- **After a refusal:** Paperclip retries a refused run a few times and then leaves the agent in error. The
+  Clerk wakes it again on the same issue 20 minutes after each refusal (`resume_capped`), so work restarts
+  by itself once the window has room. Paused agents are left alone.
+- **Tonight-only caps:** `studio-quota override --provider P --window five_hour --points N --until
+  YYYY-MM-DDTHH:MM --reason TEXT` raises a cap until a set time, then `policy/quota.json` applies again.
 - **Readings:** `claude -p /usage` as `paperclip` (no model call; the run's token and any API key are
   removed, so it reads the subscription meter). Paperclip's own quota poll fails for both providers on this
   host (its Claude poll scripts an interactive session; its Codex poll passes an option the installed Codex

@@ -158,11 +158,14 @@ class Paperclip:
         return self.call("POST", f"/api/agents/{agent_id}/resume")
 
     # --- CLI wrappers (documented) --------------------------------------------------
-    def wake_agent(self, agent_id, fresh=True, reason="clerk"):
-        """POST /api/agents/{id}/wakeup (in the live OpenAPI spec). Returns True on success."""
+    def wake_agent(self, agent_id, fresh=True, reason="clerk", issue_id=None):
+        """POST /api/agents/{id}/wakeup (in the live OpenAPI spec). Returns True on success. With issue_id the
+        agent is woken on that issue, as Paperclip does for an assignment."""
+        body = {"source": "automation", "triggerDetail": "system", "reason": reason, "forceFreshSession": fresh}
+        if issue_id:
+            body.update(source="assignment", payload={"issueId": issue_id})
         try:
-            self.call("POST", f"/api/agents/{agent_id}/wakeup", {
-                "source": "automation", "triggerDetail": "system", "reason": reason, "forceFreshSession": fresh})
+            self.call("POST", f"/api/agents/{agent_id}/wakeup", body)
             return True
         except ApiError:
             return False

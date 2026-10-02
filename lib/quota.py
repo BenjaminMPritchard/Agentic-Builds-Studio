@@ -168,12 +168,22 @@ def observe(ledger, reading, now):
     ledger["last"] = {"t": now, **{w: reading[w] for w in WINDOWS}}
 
 
-def over_cap(ledger, reading, policy, now):
-    """Take a reading during a run; the reasons studio use has reached a cap (empty while inside them)."""
+WRAP_UP_POINTS = 2  # a run is asked to wrap up this close to a cap, so its wrap-up fits inside the cap
+WRAP_UP_MINUTES = 10  # and is stopped only if it is still going this long after being asked
+
+
+def over_cap(ledger, reading, policy, now, headroom=0):
+    """Take a reading during a run; the reasons studio use is within `headroom` of a cap (empty while not)."""
     observe(ledger, reading, now)
     s = status(ledger, reading, policy)
-    return [f"studio {label} use {s['studio'][w]:g} reached the cap {s['caps'][w]:g} (resets {s['resets'][w] or 'unknown'})"
-            for w, label in (("five_hour", "5-hour"), ("week", "weekly")) if s["studio"][w] >= s["caps"][w]]
+    return [f"studio {label} use {s['studio'][w]:g} of the {s['caps'][w]:g}-point cap (resets {s['resets'][w] or 'unknown'})"
+            for w, label in (("five_hour", "5-hour"), ("week", "weekly")) if s["studio"][w] >= s["caps"][w] - headroom]
+
+
+def account_nearly_out(reading, policy):
+    """True when the account itself is within the margin of 100% in either window: past that, Benjamin's own use
+    would be cut off, so a run asked to wrap up is stopped without waiting for it."""
+    return any(reading[w]["pct"] >= 100 - policy["margin"][w] for w in WINDOWS)
 
 
 def _finish(ledger, token, now, how):

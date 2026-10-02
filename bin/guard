@@ -295,6 +295,35 @@ SUBAGENT_TOOL = re.compile(r"^(Agent|Task|spawn_agent|spawn_agents|send_input|wa
 PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$", re.M)
 
 
+# Near a usage cap bin/studio-quota writes the run's wrap-up file (agent-exec names it in STUDIO_WRAP_UP). From
+# then on only the steps that save and hand over the work are allowed, so the run ends cleanly instead of being
+# stopped partway. The other rules still apply to what is allowed.
+WRAP_UP_TOOLS = {"Read", "Grep", "Glob", "LS", "TodoWrite"}
+WRAP_UP_SHELL = re.compile(r"(?:\S+=\S+\s+)*(git|gh|curl|paperclipai|cd|pushd|popd|ls|cat|head|tail|pwd|echo|printf|wc|"
+                           r"date|true|test)(\s|$)")
+
+
+def wrap_up(tool, inp):
+    path = os.environ.get("STUDIO_WRAP_UP")
+    if not path or not os.path.exists(path):
+        return
+    if tool in WRAP_UP_TOOLS or "paperclip" in tool.lower():
+        return
+    if tool == "Bash":
+        segs = [segment(s) for s in re.split(r"&&|\|\||;|\n|\|", inp.get("command", ""))]
+        if all(WRAP_UP_SHELL.match(s) for s in segs if s):
+            return
+    try:
+        with open(path) as f:
+            why = f.read().strip()
+    except OSError:
+        why = "near the cap"
+    block(f"the Studio's usage cap asks this run to wrap up ({why}). Start nothing new. Now: commit your work "
+          "(work in progress is fine) and push it; post a short handoff on your issue (what is done, what is next, "
+          "the pushed commit); then end your run. You will be woken again when there is room. Only git, gh, "
+          "Paperclip and read-only commands are allowed now, and the run is stopped in about 10 minutes.")
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -307,6 +336,7 @@ def main():
         cwd = os.path.normpath(wd if os.path.isabs(wd) else os.path.join(cwd, wd))
     if SUBAGENT_TOOL.search(tool):
         block(f"{tool}: agents do not start sub-agents; parallel work goes through Paperclip subtasks")
+    wrap_up(tool, inp if isinstance(inp, dict) else {})
     if tool == "Bash":
         check_bash(inp.get("command", ""), cwd)
     elif tool in ("Edit", "Write", "NotebookEdit"):

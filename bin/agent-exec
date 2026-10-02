@@ -114,13 +114,17 @@ CMD+=(/usr/bin/setpriv --pdeathsig KILL -- "$CLI" "${ARGS[@]}")
 QUOTA="${STUDIO_QUOTA:-$HERE/studio-quota}"
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; then
   QTOKEN="$("$QUOTA" admit --provider "$PROVIDER" --agent "${PAPERCLIP_AGENT_ID:-unknown}" --pid $$ --run "${PAPERCLIP_RUN_ID:-}")" || exit $?
+  # Near a cap the watcher asks the run to wrap up by writing this file; Guard then allows only the steps that save
+  # and hand over the work (bin/guard, wrap_up). The file is the watcher's, in a folder the agent can read only.
+  export STUDIO_WRAP_UP="${STUDIO_AGENT_STAGE_DIR:-/srv/studio/data/agent-runs}/wrap-up-$$"
+  rm -f "$STUDIO_WRAP_UP" 2>/dev/null || true  # a file left by an earlier process with the same pid
   # Codex rewrites its config.toml as studio-agent with mode 0600 (it records the project it ran in), and
   # Paperclip then cannot open it to write the next run's MCP settings: every later Codex run fails. Paperclip can
   # still remove the file (the folder is its own), and writes a fresh one on the next run; only Codex's project
   # trust entries are lost, which the Studio does not want kept anyway.
-  setsid sh -c '"$0" release --provider "$4" --after-pid "$1" "$2"; "$3" --prune
+  setsid sh -c '"$0" release --provider "$4" --after-pid "$1" --wrap-up "$6" "$2"; "$3" --prune
     if [ -n "$5" ] && [ -e "$5/config.toml" ] && [ ! -r "$5/config.toml" ]; then rm -f "$5/config.toml"; fi' \
-    "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" "${CODEX_HOME:-}" </dev/null >/dev/null 2>&1 &
+    "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" "${CODEX_HOME:-}" "$STUDIO_WRAP_UP" </dev/null >/dev/null 2>&1 &
 fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
