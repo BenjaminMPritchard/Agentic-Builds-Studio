@@ -73,10 +73,26 @@ def allowed_paths(cwd):
     return paths
 
 
+def worktrees(root):
+    try:
+        r = subprocess.run(["git", "-C", root, "worktree", "list", "--porcelain"], capture_output=True, text=True, timeout=5)
+        return {os.path.normpath(ln[9:]) for ln in r.stdout.splitlines() if ln.startswith("worktree ")}
+    except Exception:
+        return set()
+
+
 def rel(path, cwd):
+    """The path within its repository. A file in a registered worktree under .claude/worktrees/<name>/ is judged
+    by its path in that worktree: a Codex session starts in the repository, and edits the task's worktree from
+    there (2026-10-02, AGE-29: render.yaml was refused as a .claude/** file). Only git-registered worktrees count,
+    so a folder made to look like one under .claude/ is still protected."""
     root = repo_root(cwd) or cwd or "."
     p = os.path.normpath(path if os.path.isabs(path) else os.path.join(cwd or ".", path))
-    return os.path.relpath(p, root)
+    r = os.path.relpath(p, root)
+    m = re.match(r"\.claude/worktrees/([^/]+)/(.+)", r)
+    if m and os.path.normpath(os.path.join(root, ".claude", "worktrees", m.group(1))) in worktrees(root):
+        return m.group(2)
+    return r
 
 
 def match(relpath, pattern):

@@ -137,6 +137,23 @@ class Guard(unittest.TestCase):
         self.assertEqual(run("apply_patch", ok, self.repo), 2)  # on main
         self.assertEqual(run("apply_patch", {"command": "rm -rf /"}, self.work), 2)  # not a patch
 
+    def test_codex_in_the_repository_may_edit_a_worktree_under_dot_claude_but_not_its_protected_files(self):
+        wt = os.path.join(self.repo, ".claude", "worktrees", "AGE-29-x")
+        if not os.path.isdir(wt):
+            git(self.repo, "worktree", "add", "-q", "-b", "agent/AGE-29-x", wt)
+        fake = os.path.join(self.repo, ".claude", "worktrees", "not-a-worktree")
+        os.makedirs(fake, exist_ok=True)
+
+        def edit(path):
+            return run("apply_patch", {"command": f"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** End Patch"},
+                       self.repo)
+        self.assertEqual(edit(os.path.join(wt, "render.yaml")), 0)
+        self.assertEqual(edit(".claude/worktrees/AGE-29-x/render.yaml"), 0)
+        self.assertEqual(edit(os.path.join(wt, ".claude", "settings.json")), 2)
+        self.assertEqual(edit(os.path.join(wt, "CONSTITUTION.md")), 2)
+        self.assertEqual(edit(os.path.join(fake, "render.yaml")), 2)
+        self.assertEqual(edit(".claude/settings.json"), 2)
+
     def test_sub_agent_tools_are_refused_for_claude_and_codex(self):
         for tool in ("spawn_agent", "Agent", "Task", "wait_agent", "delegate_task"):
             self.assertEqual(run(tool, {"message": "do it"}, self.work), 2, tool)
