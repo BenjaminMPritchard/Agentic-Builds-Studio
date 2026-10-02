@@ -28,6 +28,10 @@ Paperclip shows where the work stands; repo docs say how the code works. Don't m
    until the next run. Near a usage cap, Guard says the cap asks the run to wrap up: then commit, push, post
    a handoff on the issue (done, next, pushed commit) and end the run. A run that ignores it is stopped
    about 10 minutes later.
+   **Once the PR is open and recorded, move the issue to `in_review` and end the run.** Its review stage wakes
+   the reviewer. Do not schedule an issue monitor to watch the PR: the Clerk comments (and so wakes you) only
+   when checks go red or the PR is closed, and the Director runs the merge gate. Never edit
+   `.github/workflows/`: the agents' App cannot push it (Guard refuses).
 3. Use the task's isolated workspace and the project's resource rules. Never use the owner's
    checkout or database.
 4. e2e only through `/srv/studio/bin/studio-e2e`, and only when the packet says so or checkout paths changed.

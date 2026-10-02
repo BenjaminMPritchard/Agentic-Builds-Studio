@@ -110,7 +110,7 @@ class ClerkTests(unittest.TestCase):
         esc = [p for p in self.fp.patches if p[1].get("assigneeAgentId") == "prin"]
         self.assertEqual(len(esc), 1)
 
-    def test_green_open_pr_goes_to_board_digest(self):
+    def test_green_open_pr_goes_to_the_director_not_the_board(self):
         self.fp.add(id="t", title="Task", status="in_review")
         self.fp.add(id="inbox", title="Director inbox", status="todo")
         self.link("t", "o/r", 9)
@@ -118,12 +118,22 @@ class ClerkTests(unittest.TestCase):
         self.clerk(dry_run=True).tick()  # a dry-run tick must not use up the wake
         self.assertEqual(self.woken, [])
         self.clerk().tick()
-        self.assertIn("Merge PR #9", self.fp.docs[("inbox", "digest")])
+        digest = self.fp.docs[("inbox", "digest")]
+        self.assertIn("PR #9 (Task) is green: once reviewed, run the merge gate", digest)
+        self.assertIn("## Needs you (Board)\n- nothing", digest)  # Benjamin merges only ready-for-benjamin PRs
+        self.assertEqual(self.fp.comments, [])  # nothing for the agent to do, so no comment to wake it
         self.assertLessEqual(len(self.fp.docs[("inbox", "digest")]), 6000)
         self.assertIn(("dir", True), self.woken)
         self.woken.clear(); self.prs["o/r"][0]["headRefOid"] = "x"
         self.clerk().tick()  # same situation: do not wake the Director again
         self.assertEqual(self.woken, [])
+
+    def test_red_checks_are_commented_so_the_agent_wakes_to_fix_them(self):
+        self.fp.add(id="t", title="Task", status="in_review")
+        self.link("t", "o/r", 9)
+        self.prs["o/r"] = [{"number": 9, "state": "OPEN", "headRefOid": "x", "statusCheckRollup": [{"conclusion": "FAILURE"}]}]
+        self.clerk().tick()
+        self.assertTrue(any(i == "t" and "checks red" in b for i, b in self.fp.comments))
 
     def test_dry_run_writes_nothing_and_keeps_no_receipts(self):
         self.fp.add(id="t", title="Task", status="in_review")
@@ -337,6 +347,38 @@ class ClerkGitHubIdentity(unittest.TestCase):
         with self.assertRaises(clerk_mod.github_app.GitHubAppError):
             clerk_mod.gh_env("o/r", config=self.config, mint=mint)
 
+
+class EnsureReview(unittest.TestCase):
+    """2026-10-02: tasks with no reviewer could not reach the merge gate, so every PR fell to Benjamin."""
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "b1", "name": "Builder-1"}, {"id": "pr", "name": "Principal"},
+                          {"id": "cp", "name": "Codex-Principal"}, {"id": "dir", "name": "Director"}]
+        self.policy = {"projects": {"mothers": {"enabled": True}, "off": {"enabled": False}}}
+
+    def run_(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [])
+        c.ensure_review(list(self.fp.issues.values()), {}, policy=self.policy)
+        c.save()
+
+    def test_a_builders_task_gets_the_principal_as_reviewer_once(self):
+        self.fp.add(id="t1", identifier="AGE-24", title="6d-3", status="in_progress", projectId="mothers", assigneeAgentId="b1")
+        self.fp.add(id="t2", identifier="AGE-30", title="7b", status="todo", projectId="mothers", assigneeAgentId="pr")
+        self.run_(); self.run_()
+        stages = {i: b["executionPolicy"]["stages"][0]["participants"][0]["agentId"] for i, b in self.fp.patches}
+        self.assertEqual(stages, {"t1": "pr", "t2": "cp"})  # the Principal's own work goes to Codex-Principal
+        self.assertEqual(len(self.fp.patches), 2)
+
+    def test_left_alone_when_reviewed_already_not_code_not_authorised_or_not_active(self):
+        self.fp.add(id="a", title="x", status="in_progress", projectId="mothers", assigneeAgentId="b1",
+                    executionPolicy={"mode": "normal", "stages": []})
+        self.fp.add(id="b", title="x", status="in_progress", projectId="mothers", assigneeAgentId="dir")
+        self.fp.add(id="c", title="x", status="in_progress", projectId="off", assigneeAgentId="b1")
+        self.fp.add(id="d", title="x", status="backlog", projectId="mothers", assigneeAgentId="b1")
+        self.run_()
+        self.assertEqual(self.fp.patches, [])
 
 class ResumeCapped(unittest.TestCase):
     """2026-10-02: agents refused by a usage cap were left in error by Paperclip and nothing woke them after the
