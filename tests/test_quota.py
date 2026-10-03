@@ -488,7 +488,7 @@ class AgentExecWiring(unittest.TestCase):
                "STUDIO_QUOTA": self.fake, "STUDIO_QUOTA_POLL": "0.1", "STUDIO_QUOTA_SETTLE": "0",
                "PAPERCLIP_AGENT_ID": "agent-1", "PAPERCLIP_RUN_ID": "run-7"}
         return subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
-                              capture_output=True, text=True, env=env, timeout=10)
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, timeout=10)
 
     def lines(self, want):
         for _ in range(50):

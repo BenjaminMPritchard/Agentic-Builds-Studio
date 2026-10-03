@@ -35,7 +35,7 @@ class CodexExec(unittest.TestCase):
         shutil.rmtree(self.tmp)
 
     def run_(self, *args):
-        return subprocess.run([os.path.join(self.tmp, "agent-exec"), *args], capture_output=True, text=True,
+        return subprocess.run([os.path.join(self.tmp, "agent-exec"), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
                               env=self.env, cwd=self.tmp)
 
     def test_a_codex_run_uses_the_codex_cli_the_studio_home_and_its_own_cap(self):

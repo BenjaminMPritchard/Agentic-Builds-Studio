@@ -1,4 +1,4 @@
-import json, os, subprocess, tempfile, unittest, threading, http.server
+import json, os, shlex, subprocess, tempfile, unittest, threading, http.server
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT, "bin", "guard")
@@ -311,6 +311,23 @@ class WrapUp(unittest.TestCase):
         self.assertIn("push", r.stderr)
         self.assertEqual(run("Edit", {"file_path": os.path.join(self.work, "a.py"), "new_string": "x"}, self.work, self.env), 2)
         self.assertEqual(run("Bash", {"command": "git status && python3 build.py"}, self.work, self.env), 2)
+
+    def test_a_handoff_with_several_lines_or_pipes_in_its_text_is_still_allowed(self):
+        # 2026-10-03: Codex-Principal's approval of AGE-29 and its handoff were refused as unknown commands.
+        open(self.flag, "w").write("near the cap\n")
+        body = "Approve PR #63.\n- schema: 0 errors; tests | 8 passed\n- Optional: ipAllowList"
+        allowed = [f"gh pr review 63 --approve --body {json.dumps(body)}",
+                   "/usr/bin/bash -lc " + shlex.quote(f"gh issue comment 15 --body {json.dumps(body)}"),
+                   f"curl -s -X POST http://127.0.0.1:3100/api/issues/x/comments -d '{{\"body\": \"a; b | c\"}}'",
+                   "gh pr comment 63 --body-file - <<'EOF'\nline one; rm -rf x\nline two | wc\nEOF"]
+        for cmd in allowed:
+            self.assertEqual(run("Bash", {"command": cmd}, self.work, self.env), 0, cmd)
+        refused = ["/usr/bin/bash -lc 'npm test'",
+                   "/usr/bin/bash -lc " + shlex.quote("gh pr view 1; python3 build.py"),
+                   'gh issue comment 1 --body "$(python3 build.py)"',
+                   "python3 - <<'PY'\nprint(1)\nPY"]
+        for cmd in refused:
+            self.assertEqual(run("Bash", {"command": cmd}, self.work, self.env), 2, cmd)
 
 
 if __name__ == "__main__":

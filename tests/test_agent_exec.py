@@ -5,7 +5,7 @@ EXEC = os.path.join(ROOT, "bin", "agent-exec")
 
 
 def run(*args, **env):
-    return subprocess.run([EXEC, *args], capture_output=True, text=True,
+    return subprocess.run([EXEC, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
                           env={**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1",
                                # the host's real App config must not leak in; token handling is in test_agent_identity
                                "STUDIO_AGENTS_APP_CONFIG": "/nonexistent/agents-app.json",

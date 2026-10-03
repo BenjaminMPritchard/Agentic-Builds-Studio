@@ -335,6 +335,25 @@ WRAP_UP_SHELL = re.compile(r"(?:\S+=\S+\s+)*(git|gh|curl|paperclipai|cd|pushd|po
                            r"date|true|test)(\s|$)")
 
 
+QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+
+
+def commands_only(cmd):
+    """The command line with its text taken out, so a handoff whose body has several lines, `;` or `|` is still
+    one gh or curl command (2026-10-03: Codex-Principal's approval and handoff on AGE-29 were refused as
+    unknown commands). A `bash -lc '...'` wrapper (Codex runs every command in one) is unwrapped first, and a
+    double-quoted string that runs a command, $(...) or backticks, is kept, and wrap-up refuses it."""
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        toks = []
+    if len(toks) == 3 and re.fullmatch(r"(?:\S*/)?(?:ba|z|da)?sh", toks[0]) and toks[1] in ("-c", "-lc"):
+        cmd = toks[2]
+    cmd = HEREDOC.sub("", cmd)
+    return QUOTED.sub(lambda m: m.group(0) if m.group(0).startswith('"') and ("$(" in m.group(0) or "`" in m.group(0))
+                      else "''", cmd)
+
+
 def wrap_up(tool, inp):
     path = os.environ.get("STUDIO_WRAP_UP")
     if not path or not os.path.exists(path):
@@ -342,8 +361,9 @@ def wrap_up(tool, inp):
     if tool in WRAP_UP_TOOLS or "paperclip" in tool.lower():
         return
     if tool == "Bash":
-        segs = [segment(s) for s in re.split(r"&&|\|\||;|\n|\|", inp.get("command", ""))]
-        if all(WRAP_UP_SHELL.match(s) for s in segs if s):
+        line = commands_only(inp.get("command", ""))
+        segs = [segment(s) for s in re.split(r"&&|\|\||;|\n|\|", line)]
+        if "$(" not in line and "`" not in line and all(WRAP_UP_SHELL.match(s) for s in segs if s):
             return
     try:
         with open(path) as f:

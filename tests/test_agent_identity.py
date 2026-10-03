@@ -59,7 +59,7 @@ class AgentExecToken(unittest.TestCase):
         if owner:
             env["STUDIO_AGENT_GITHUB_OWNER"] = owner
         return subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env)
 
     def test_app_token_replaces_the_personal_token(self):
         self.fake_token_cmd('[ "$1" = "Agentic-Builds-Studio-Client-Pages" ] && echo ghs_app_token_123')
