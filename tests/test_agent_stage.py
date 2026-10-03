@@ -232,7 +232,7 @@ class AgentExecStaging(unittest.TestCase):
                "STUDIO_AGENT_STAGE_DIR": os.path.join(self.tmp, "runs"), "STUDIO_AGENT_GROUP": MY_GROUP}
         return subprocess.run([os.path.join(self.tmp, "agent-exec"), "--print", "-", "--append-system-prompt-file",
                                instructions, "--settings", "/srv/studio/claude/liaison.json"],
-                              capture_output=True, text=True, env=env)
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env)
 
     def test_the_cli_is_given_the_staged_copy(self):
         r = self.exec_(self.instructions)
@@ -264,11 +264,11 @@ class AgentExecStaging(unittest.TestCase):
             env = {**os.environ, "STUDIO_AGENT_EXEC_DRY_RUN": "1", "STUDIO_AGENTS_APP_CONFIG": "/nonexistent",
                    "STUDIO_RUNTIME_DIR": runtime, "STUDIO_AGENT_STAGE_DIR": os.path.join(self.tmp, "runs")}
             r = subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
-                               capture_output=True, text=True, env=env, cwd=d)
+                               capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, cwd=d)
             self.assertEqual((r.returncode, r.stdout), (2, ""), d)
             self.assertIn("the Studio runtime", r.stderr)
         r = subprocess.run([os.path.join(self.tmp, "agent-exec"), "--settings", "/srv/studio/claude/liaison.json"],
-                           capture_output=True, text=True, env=env, cwd=self.tmp)
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, cwd=self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_if_staging_fails_the_run_does_not_start(self):
