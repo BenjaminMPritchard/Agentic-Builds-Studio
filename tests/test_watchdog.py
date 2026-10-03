@@ -114,9 +114,15 @@ class Plan(unittest.TestCase):
                                  "and waiting: AGE-23 Production settings for Render staging, Builder-1; AGE-29 Render "
                                  "Blueprint, Builder-2. It carries on by itself after 10:59pm. Nothing for you to do.")])
         self.assertEqual(watchdog.plan(NOON, agents, runs, issues, watch), [])  # told once, blocked issue not repeated
-        again = [{**runs[0], "id": "r3", "status": "running", "error": None, "createdAt": iso(NOON)}, runs[1]]
-        again[1] = {**runs[1], "id": "r4", "status": "succeeded", "error": None, "createdAt": iso(NOON)}
-        acts = watchdog.plan(NOON, agents, again, issues, watch)
+        # The Clerk's own run, and a failure for another reason, are not "running again" (2026-10-03).
+        clerk = {"id": "c1", "name": "Clerk", "status": "idle", "adapterType": "process"}
+        other = [runs[0], {**runs[1], "id": "r5", "error": "continuation_source_context_missing", "createdAt": iso(NOON)},
+                 {**failed("c9", 0, agent="c1"), "status": "succeeded", "error": None, "createdAt": iso(NOON)}]
+        self.assertEqual([a for a in watchdog.plan(NOON, agents + [clerk], other, issues, watch) if a[0] == "notify"
+                          and a[1].startswith(("running", "paused"))], [])
+        again = [{**runs[0], "id": "r3", "status": "running", "error": None, "createdAt": iso(NOON)},
+                 {**runs[1], "id": "r4", "status": "failed", "error": "something else", "createdAt": iso(NOON)}]
+        acts = [a for a in watchdog.plan(NOON, agents, again, issues, watch) if a[1].startswith("running")]
         self.assertEqual(acts[0], ("notify", "running:r1", "Studio running again after the usage cap: AGE-23 "
                                                           "Production settings for Render staging, Builder-1."))
 
@@ -159,7 +165,7 @@ class Notify(unittest.TestCase):
         self.assertEqual(notify.send(d, "b", NIGHT, self.cfg, self.push), "held")
         self.assertEqual(notify.send(d, "c", NIGHT, self.cfg, self.push), "held")
         self.assertTrue(notify.flush(d, NOON + 86400, self.cfg, self.push))
-        self.assertEqual(self.pushed, ["a", "Overnight:\n- b\n- c"])
+        self.assertEqual(self.pushed, ["a", "Earlier:\n- b\n- c"])
         self.assertFalse(notify.flush(d, NOON + 86400, self.cfg, self.push))  # nothing left
         self.assertEqual(len(open(os.path.join(d, "log", "notify.jsonl")).readlines()), 3)
 
@@ -170,6 +176,20 @@ class Notify(unittest.TestCase):
         def broken(cfg, text):
             raise OSError("down")
         self.assertEqual(notify.send(d, "b", NOON, self.cfg, broken), "failed")
+        self.assertEqual(notify.send(d, "c", NOON, self.cfg, self.push), "sent")
+        self.assertEqual(self.pushed, ["Earlier:\n- b\n- c"])  # the failed one went with the next
+
+    def test_a_large_backlog_is_cut_to_fit_ntfy_newest_first(self):
+        # 2026-10-03: 22 held notices made a 4.2 KB message; ntfy refuses over 4,096 bytes, so nothing got through.
+        d = self.tmp.name
+        for n in range(40):
+            notify.send(d, f"notice {n} " + "x" * 150, NIGHT, self.cfg, self.push)
+        notify.send(d, "notice 40 " + "x" * 150, NIGHT, self.cfg, self.push)
+        self.assertTrue(notify.flush(d, NOON + 86400, self.cfg, self.push))
+        body = self.pushed[-1]
+        self.assertLessEqual(len(body.encode()), notify.MAX_BYTES)
+        self.assertIn("earlier notices are in the Clerk's digest", body)
+        self.assertTrue(body.rstrip().endswith("notice 40 " + "x" * 150))
 
 
 class Outside(unittest.TestCase):

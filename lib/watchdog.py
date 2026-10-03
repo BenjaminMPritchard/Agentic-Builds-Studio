@@ -73,7 +73,7 @@ def heading(issue, who, n=70):
     return f"{issue.get('identifier', issue['id'])} {short(title, n)}" + (f", {who}" if who else "")
 
 
-def situation(latest, capped, name, issues, watch):
+def situation(latest, capped, name, issues, watch, workers):
     """What the Studio as a whole is doing: paused by the usage cap, running again, tasks finished."""
     out = []
     open_by_agent = {}
@@ -86,23 +86,30 @@ def situation(latest, capped, name, issues, watch):
         issue = by_id.get(((run or {}).get("contextSnapshot") or {}).get("issueId")) or (open_by_agent.get(agent) or [None])[0]
         return heading(issue, name.get(agent, agent), 45) if issue else name.get(agent, agent)
 
-    if capped and not watch.get("paused"):
+    pause = watch.get("paused")
+    if isinstance(pause, str):  # the first version kept only the run id
+        pause = watch["paused"] = {"run": pause, "since": "", "reset": None}
+    if capped:
         first = latest[sorted(capped)[0]]
         detail, reset = CAP_DETAIL.search(first.get("error") or ""), RESETS.search(first.get("error") or "")
-        budget = "this week's" if detail and detail.group(1) == "week" else "this 5-hour"
-        used = f" ({detail.group(2)} of {detail.group(3)} points)" if detail else ""
-        waiting = "; ".join(doing(a, latest[a]) for a in sorted(capped, key=lambda a: name.get(a, a)))
-        watch["paused"] = first["id"]
-        out.append(("notify", f"paused:{first['id']}",
-                    f"Studio paused: {budget} usage budget is used up{used}. Work is saved and waiting: {waiting}. "
-                    f"It carries on by itself after {reset.group(1) if reset else 'the budget resets'}. "
-                    "Nothing for you to do."))
-    elif watch.get("paused") and not capped:
-        busy = [a for a, r in latest.items() if r.get("status") == "running"]
-        out.append(("notify", f"running:{watch.pop('paused')}",
-                    "Studio running again after the usage cap" + (
-                        ": " + "; ".join(doing(a, latest[a]) for a in sorted(busy, key=lambda a: name.get(a, a))) + "."
-                        if busy else ".")))
+        when = reset.group(1) if reset else None
+        if not pause or (when and when != pause.get("reset")):  # a new pause, not the same one seen again
+            budget = "this week's" if detail and detail.group(1) == "week" else "this 5-hour"
+            used = f" ({detail.group(2)} of {detail.group(3)} points)" if detail else ""
+            waiting = "; ".join(doing(a, latest[a]) for a in sorted(capped, key=lambda a: name.get(a, a)))
+            watch["paused"] = {"run": first["id"], "since": first.get("createdAt", ""), "reset": when}
+            out.append(("notify", f"paused:{first['id']}",
+                        f"Studio paused: {budget} usage budget is used up{used}. Work is saved and waiting: {waiting}. "
+                        f"It carries on by itself after {when or 'the budget resets'}. Nothing for you to do."))
+    elif pause:
+        # Running again means an agent's run was let through after the pause began; the Clerk's own runs and
+        # failures for other reasons are not that (2026-10-03: "running again" was sent while still capped).
+        busy = sorted((a for a, r in latest.items() if a in workers and r.get("status") in ("running", "succeeded")
+                       and r.get("createdAt", "") > pause.get("since", "")), key=lambda a: name.get(a, a))
+        if busy:
+            del watch["paused"]
+            out.append(("notify", f"running:{pause['run']}",
+                        "Studio running again after the usage cap: " + "; ".join(doing(a, latest[a]) for a in busy) + "."))
 
     done = {i["id"] for i in issues if i.get("status") == "done"}
     if "done_seen" not in watch:  # first tick: what was already done is not news
@@ -163,7 +170,8 @@ def plan(now, agents, runs, issues, watch, quiet=False):
 
     capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")
               and status.get(a) != "paused"}
-    out.extend(situation(latest, capped, name, issues, watch))
+    workers = {a["id"] for a in agents if a.get("adapterType") != "process"}  # not the Clerk or other scripts
+    out.extend(situation(latest, capped, name, issues, watch, workers))
 
     day = datetime.date.fromtimestamp(now).isoformat()
     for i in issues:

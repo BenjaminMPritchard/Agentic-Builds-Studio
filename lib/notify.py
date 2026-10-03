@@ -6,7 +6,7 @@ names a channel, it is also pushed there:
   {"ntfy_url": "https://<host>/<topic>", "token_file": "/etc/studio/ntfy-token"}   # token_file optional
 
 During quiet hours (22:00-07:00 local) notices are held, then sent together as one message by the first Clerk
-tick after them (`flush`).
+tick after them (`flush`). A notice that could not be sent waits with them for the next try.
 A notice is text only: no secrets, keys or customer data, because it leaves the machine.
 """
 import json
@@ -16,6 +16,10 @@ import urllib.request
 
 CONFIG = os.environ.get("STUDIO_NOTIFY_CONFIG", "/etc/studio/notify.json")
 QUIET = (22, 7)  # local hours: from 22:00 until 07:00
+# ntfy refuses a message over 4,096 bytes. 2026-10-03: 22 notices held overnight came to 4.2 KB, every push was
+# refused from then on, and each refusal added one more. So a combined message keeps the newest notices that fit.
+MAX_BYTES = 3800
+MAX_HELD = 60
 
 
 def quiet(now):
@@ -41,6 +45,22 @@ def _push(cfg, text):
         return 200 <= r.status < 300
 
 
+def combined(held, text=None):
+    """One message from the held notices (and a new one): repeats removed, newest kept, under ntfy's limit."""
+    lines = list(dict.fromkeys([t[:600] for t in held] + ([text[:600]] if text else [])))
+    if not held:
+        return lines[-1]
+    kept, size = [], len("Earlier:\n")
+    for t in reversed(lines):
+        size += len(f"- {t}\n".encode())
+        if size > MAX_BYTES - 80:
+            break
+        kept.insert(0, t)
+    dropped = len(lines) - len(kept)
+    return "\n".join(["Earlier:"] + ([f"- ({dropped} earlier notices are in the Clerk's digest)"] if dropped else [])
+                     + [f"- {t}" for t in kept])
+
+
 def send(data_dir, text, now=None, config=None, push=_push):
     """Log a notice and push it (or hold it during quiet hours). Returns "sent", "held", "logged" or "failed"."""
     now = time.time() if now is None else now
@@ -55,15 +75,15 @@ def send(data_dir, text, now=None, config=None, push=_push):
             held.append(text)
             outcome = "held"
         else:
-            body = "\n".join(["Overnight:"] + [f"- {t}" for t in held] + [f"- {text}"]) if held else text
+            body = combined(held, text)
             try:
                 outcome = "sent" if push(cfg, body) else "failed"
             except Exception:  # a channel that is down must not stop the Clerk; the log and digest still have it
                 outcome = "failed"
-            if outcome == "sent":
-                held = []
+            # Sent: the held notices went with it. Not sent: this one waits with them for the next try.
+            held = [] if outcome == "sent" else held + [text]
         with open(held_path, "w") as f:
-            json.dump(held, f)
+            json.dump(held[-MAX_HELD:], f)
     with open(os.path.join(log_dir, "notify.jsonl"), "a") as f:
         f.write(json.dumps({"ts": int(now), "text": text, "outcome": outcome}) + "\n")
     return outcome
@@ -77,7 +97,7 @@ def flush(data_dir, now=None, config=None, push=_push):
     if not held or quiet(now) or not (cfg and cfg.get("ntfy_url")):
         return False
     try:
-        ok = push(cfg, "\n".join(["Overnight:"] + [f"- {t}" for t in held]))
+        ok = push(cfg, combined(held))
     except Exception:
         return False
     if ok:
