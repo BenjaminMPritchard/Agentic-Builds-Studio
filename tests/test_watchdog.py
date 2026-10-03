@@ -114,6 +114,9 @@ class Plan(unittest.TestCase):
                                  "and waiting: AGE-23 Production settings for Render staging, Builder-1; AGE-29 Render "
                                  "Blueprint, Builder-2. It carries on by itself after 10:59pm. Nothing for you to do.")])
         self.assertEqual(watchdog.plan(NOON, agents, runs, issues, watch), [])  # told once, blocked issue not repeated
+        moved = [{**r, "id": r["id"] + "b", "createdAt": iso(NOON - 60), "error": r["error"].replace("10:59pm", "10:58pm")}
+                 for r in runs]
+        self.assertEqual(watchdog.plan(NOON, agents, moved, issues, watch), [])  # the reading's minute moved: same pause
         # The Clerk's own run, and a failure for another reason, are not "running again" (2026-10-03).
         clerk = {"id": "c1", "name": "Clerk", "status": "idle", "adapterType": "process"}
         other = [runs[0], {**runs[1], "id": "r5", "error": "continuation_source_context_missing", "createdAt": iso(NOON)},

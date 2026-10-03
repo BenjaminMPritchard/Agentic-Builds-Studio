@@ -93,7 +93,10 @@ def situation(latest, capped, name, issues, watch, workers):
         first = latest[sorted(capped)[0]]
         detail, reset = CAP_DETAIL.search(first.get("error") or ""), RESETS.search(first.get("error") or "")
         when = reset.group(1) if reset else None
-        if not pause or (when and when != pause.get("reset")):  # a new pause, not the same one seen again
+        # A new pause, not the same one seen again: none is open, or the open one began a whole window ago and
+        # no run went through since (the reset time itself moves by a minute between readings, 2026-10-03).
+        since = epoch(pause.get("since")) if pause else None
+        if not pause or (since and (epoch(first.get("createdAt")) or 0) - since >= 5 * 3600):
             budget = "this week's" if detail and detail.group(1) == "week" else "this 5-hour"
             used = f" ({detail.group(2)} of {detail.group(3)} points)" if detail else ""
             waiting = "; ".join(doing(a, latest[a]) for a in sorted(capped, key=lambda a: name.get(a, a)))
