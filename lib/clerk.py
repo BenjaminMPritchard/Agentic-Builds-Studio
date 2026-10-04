@@ -299,7 +299,8 @@ class Clerk:
         the Principal reviews, or Codex-Principal when the Principal wrote it. 2026-10-02: the 6d tasks had no
         reviewer, so Paperclip let the Builder park its work in review only behind an hourly self-check, and
         the merge gate never saw an approval, so every PR fell to Benjamin. The packet's own review policy,
-        when it sets one, is never replaced."""
+        when it sets one, is never replaced. While Claude's week has no room, Codex-Principal reviews everything,
+        so reviews do not wait days for the weekly reset (Benjamin, 2026-10-04: "move all active tasks to codex")."""
         try:
             policy = policy or merge_gate.load_policy()
         except (OSError, ValueError):
@@ -307,12 +308,14 @@ class Clerk:
         projects = {pid for pid, p in (policy.get("projects") or {}).items() if isinstance(p, dict) and p.get("enabled")}
         agents = {a["id"]: a.get("name", "") for a in self.pc.list_agents(self.cid)}
         by_name = {n: i for i, n in agents.items()}
+        claude_out = self.claude_week_out(by_name.get("Principal"))
         for i in issues:
             who = agents.get(i.get("assigneeAgentId"), "")
             if i.get("projectId") not in projects or i.get("status") not in ("todo", "in_progress") \
                     or i.get("executionPolicy") or not self.BUILDING.match(who):
                 continue
-            reviewer = by_name.get("Codex-Principal" if who == "Principal" else "Principal")
+            codex = who == "Principal" or claude_out
+            reviewer = by_name.get("Codex-Principal" if codex else "Principal")
             if not reviewer or self.handled(f"review-stage:{i['id']}"):
                 continue
             # Paperclip's issue list always shows executionPolicy as null; only the issue itself has it
@@ -324,6 +327,17 @@ class Clerk:
             if self.once(f"review-stage:{i['id']}", f"review stage on {i.get('identifier')}", self.pc.patch_issue,
                          i["id"], executionPolicy={"mode": "normal", "stages": [stage]}):
                 self.log("review_stage", task=i.get("identifier"), reviewer=agents[reviewer])
+
+    def claude_week_out(self, agent_id):
+        """True when the usage-cap ledger shows no room left this week for a run of this agent (its estimate)."""
+        try:
+            with open(QUOTA_LEDGER) as f:
+                ledger = json.load(f)
+            policy = quota.load_policy(QUOTA_POLICY, "claude")
+            return bool(ledger.get("last")) and \
+                quota.week_room(ledger, ledger["last"], policy) < quota.estimate(ledger, agent_id, policy)["week"]
+        except (OSError, ValueError, KeyError):
+            return False
 
     def resume_capped(self, issues, by_id):
         """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.

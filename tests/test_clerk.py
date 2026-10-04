@@ -371,6 +371,17 @@ class EnsureReview(unittest.TestCase):
         self.assertEqual(stages, {"t1": "pr", "t2": "cp"})  # the Principal's own work goes to Codex-Principal
         self.assertEqual(len(self.fp.patches), 2)
 
+    def test_codex_principal_reviews_everything_while_claudes_week_is_used_up(self):
+        # 2026-10-04: the account reached 99% of its week; reviews by the Principal would wait for the reset.
+        ledger = os.path.join(self.tmp.name, "claude.json")
+        with open(ledger, "w") as f:
+            json.dump({"last": {"t": 0, "five_hour": {"pct": 0, "key": "x"}, "week": {"pct": 99.4, "key": "Mon"}},
+                       "studio": {"five_hour": {}, "week": {"Mon": 39}}, "active": {}, "samples": {}}, f)
+        clerk_mod.QUOTA_LEDGER = ledger
+        self.fp.add(id="t1", identifier="AGE-24", title="6d-3", status="in_progress", projectId="mothers", assigneeAgentId="b1")
+        self.run_()
+        self.assertEqual(self.fp.patches[0][1]["executionPolicy"]["stages"][0]["participants"][0]["agentId"], "cp")
+
     def test_a_review_policy_missing_only_from_the_issue_list_is_kept(self):
         self.fp.add(id="t1", identifier="AGE-6", title="7a", status="in_progress", projectId="mothers", assigneeAgentId="pr",
                     executionPolicy={"mode": "normal", "stages": [{"type": "review"}, {"type": "review"}]})
