@@ -254,6 +254,16 @@ def status(ledger, reading, policy):
             "week": policy["weekly_cap"]}, "active_runs": len(ledger["active"])}
 
 
+def week_room(ledger, reading, policy):
+    """Points left this week for studio runs: the smaller of the studio's weekly cap and the account's own week,
+    keeping Benjamin's personal share and the margin back, as admit() does."""
+    s, m = status(ledger, reading, policy), policy["margin"]["week"]
+    personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
+    studio = policy["weekly_cap"] - s["studio"]["week"] - s["reserved"]["week"] - m
+    account = 100 - s["account"]["week"] - s["reserved"]["week"] - m - max(0.0, policy["personal_weekly"] - personal_used)
+    return min(studio, account)
+
+
 def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=None):
     """Returns (token, []) when admitted, else (None, reasons). Mutates the ledger either way."""
     _drop_gone(ledger, policy, now, pid_alive)
