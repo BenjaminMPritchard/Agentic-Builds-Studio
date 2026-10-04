@@ -130,6 +130,14 @@ if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" != 1 ] || [ -n "${STUDIO_QUOTA:-}" ]; the
   setsid sh -c '"$0" release --provider "$4" --after-pid "$1" --wrap-up "$6" "$2"; "$3" --prune
     if [ -n "$5" ] && [ -e "$5/config.toml" ] && [ ! -r "$5/config.toml" ]; then rm -f "$5/config.toml"; fi' \
     "$QUOTA" $$ "$QTOKEN" "$HERE/agent-stage" "$PROVIDER" "${CODEX_HOME:-}" "$STUDIO_WRAP_UP" </dev/null >/dev/null 2>&1 &
+  # The same, while the run lasts: Codex rewrites the file as soon as it starts, so a second Codex run starting
+  # meanwhile (another Codex agent) failed with EACCES before reaching this wrapper (2026-10-04, when all work moved
+  # to Codex). Codex has read its settings by then; removing the file lets Paperclip write the next run's.
+  if [ "$PROVIDER" = codex ] && [ -n "${CODEX_HOME:-}" ]; then
+    setsid sh -c 'while kill -0 "$1" 2>/dev/null; do
+        if [ -e "$0/config.toml" ] && [ ! -r "$0/config.toml" ]; then rm -f "$0/config.toml"; fi; sleep 1; done' \
+      "$CODEX_HOME" $$ </dev/null >/dev/null 2>&1 &
+  fi
 fi
 if [ "${STUDIO_AGENT_EXEC_DRY_RUN:-0}" = 1 ]; then
   printf '%q ' "${CMD[@]}"; echo
