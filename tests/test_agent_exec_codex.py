@@ -120,6 +120,26 @@ class CodexExec(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse(os.path.exists(cfg), r.stderr)
 
+    def test_a_config_codex_makes_unreadable_is_removed_while_the_run_lasts(self):
+        # 2026-10-04: a second Codex run starting during the first failed with EACCES on config.toml.
+        home = os.path.join(self.tmp, "codex-home")
+        os.makedirs(home)
+        cfg, mark = os.path.join(home, "config.toml"), os.path.join(self.tmp, "mark")
+        open(cfg, "w").close()
+        fake = os.path.join(self.tmp, "bin")
+        os.makedirs(fake)
+        with open(os.path.join(fake, "sudo"), "w") as f:  # stands in for the run: Codex rewrites its config, works on
+            f.write(f'#!/bin/sh\nchmod 0 {cfg}\nsleep 3\n[ -e {cfg} ] && echo present > {mark} || echo gone > {mark}\n')
+        os.chmod(os.path.join(fake, "sudo"), 0o755)
+        quota = os.path.join(self.tmp, "quota-waits")  # like the real one: release waits until the run has ended
+        with open(quota, "w") as f:
+            f.write('#!/bin/sh\n[ "$1" = admit ] && echo tok\n[ "$1" = release ] && sleep 5\nexit 0\n')
+        os.chmod(quota, 0o755)
+        self.env.update(STUDIO_CODEX_HOME=home, PATH=fake + ":" + self.env["PATH"], STUDIO_QUOTA=quota)
+        self.env.pop("STUDIO_AGENT_EXEC_DRY_RUN")
+        self.run_("exec", "-")
+        self.assertEqual(open(mark).read().strip(), "gone")
+
     def test_paperclips_mcp_headers_are_given_the_key_codex_reads(self):
         home = os.path.join(self.tmp, "codex-home")
         os.makedirs(home)
