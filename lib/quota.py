@@ -327,8 +327,10 @@ def load_policy(path, provider, override=None, now=None):
     if override and os.path.exists(override):
         with open(override) as f:
             o = json.load(f)
-        if (now if now is not None else time.time()) < o["until"]:
-            policy = {**policy, **{k: o[k] for k in ("five_hour_cap", "weekly_cap") if k in o}}
+        t = now if now is not None else time.time()
+        # each window carries its own end; "until" is the one-window format written before 2026-10-06
+        policy = {**policy, **{k: o[k] for k in ("five_hour_cap", "weekly_cap")
+                               if k in o and t < o.get(f"{k}_until", o.get("until", 0))}}
     return policy
 
 
@@ -340,7 +342,18 @@ def override(window, points, until):
     if not 0 < points <= 100:
         raise QuotaError("a cap is between 0 and 100 points")
     key = {"five_hour": "five_hour_cap", "week": "weekly_cap"}[window]
-    return {key: float(points), "until": float(until)}
+    return {key: float(points), f"{key}_until": float(until)}
+
+
+def merge_override(existing, new, now):
+    """`new` added to the override already on file, keeping the other window's override while it lasts.
+    2026-10-06: overriding both windows in turn kept only the second, so the five-hour cap was back at 22."""
+    kept = {}
+    for k in ("five_hour_cap", "weekly_cap"):
+        end = (existing or {}).get(f"{k}_until", (existing or {}).get("until", 0))
+        if k in (existing or {}) and now < end:
+            kept.update({k: existing[k], f"{k}_until": end})
+    return {**kept, **new}
 
 
 class Ledger:

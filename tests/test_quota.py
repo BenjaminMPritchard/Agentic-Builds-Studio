@@ -284,7 +284,18 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 80)  # untouched
         with self.assertRaises(QuotaError):
             quota.override("five_hour", 120, until=1000)
+        with open(path, "w") as f:  # the one-window format written before 2026-10-06
+            json.dump({"weekly_cap": 100.0, "until": 1000}, f)
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 100.0)
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["weekly_cap"], 80)
         shutil.rmtree(os.path.dirname(path))
+
+    def test_an_override_keeps_the_other_windows_until_it_ends(self):
+        five = quota.override("five_hour", 100, until=2000)
+        both = quota.merge_override(five, quota.override("week", 90, until=3000), now=1000)
+        self.assertEqual((both["five_hour_cap"], both["weekly_cap"]), (100.0, 90.0))
+        self.assertNotIn("five_hour_cap", quota.merge_override(five, quota.override("week", 90, until=3000), now=2000))
+        self.assertEqual(quota.merge_override({"five_hour_cap": 50.0, "until": 2000}, {}, now=1000)["five_hour_cap"], 50.0)
 
     def test_very_old_runs_are_ended(self):
         tok, _ = self.admit(reading(10, 10))
@@ -339,6 +350,16 @@ class Cli(unittest.TestCase):
         r = self.q("override", "--provider", "claude", "--window", "five_hour", "--points", "100",
                    "--until", "2000-01-01T08:00", "--reason", "x")
         self.assertNotEqual(r.returncode, 0)  # an end in the past is refused
+
+    def test_overriding_the_week_keeps_the_five_hour_override(self):
+        # 2026-10-06: Benjamin overrode both windows in turn; the second call dropped the first.
+        for w in ("five_hour", "week"):
+            r = self.q("override", "--provider", "claude", "--window", w, "--points", "100",
+                       "--until", "2099-01-01T08:00", "--reason", "away until Thursday")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        path = os.path.join(self.tmp, "q", "override-claude.json")
+        policy = quota.load_policy(os.path.join(ROOT, "policy", "quota.json"), "claude", path)
+        self.assertEqual((policy["five_hour_cap"], policy["weekly_cap"]), (100.0, 100.0))
 
     def test_a_run_is_stopped_when_studio_use_reaches_the_cap(self):
         # 2026-10-01: admission passed at 0% and one Codex run then took the whole five-hour window.

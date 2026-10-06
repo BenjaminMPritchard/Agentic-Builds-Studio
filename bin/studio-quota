@@ -164,8 +164,13 @@ def main(argv):
         until = datetime.datetime.fromisoformat(a.until).astimezone().timestamp()
         if until <= quota.now():
             ap.error("--until is in the past")
-        o = quota.override(a.window, a.points, until)
         target = os.path.join(LEDGER_DIR, f"override-{a.provider}.json")
+        try:
+            with open(target) as f:
+                existing = json.load(f)
+        except (OSError, ValueError):
+            existing = None
+        o = quota.merge_override(existing, quota.override(a.window, a.points, until), quota.now())
         with open(os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
             json.dump(o, f)
         os.replace(target + ".tmp", target)
