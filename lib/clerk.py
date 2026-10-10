@@ -21,6 +21,7 @@ CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
 RESUME_AFTER = 20 * 60  # seconds after a cap refusal before the agent is woken to try again
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
+GATE_LOOKBACK_DAYS = 14
 QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
 QUOTA_LEDGER = os.path.join(QUOTA_DIR, "claude.json")
 QUOTA_POLICY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policy", "quota.json")
@@ -57,8 +58,10 @@ def gh_json(args):
 
 class Clerk:
     def __init__(self, pc, company_id, data_dir, gh=gh_json, dry_run=False, director_id=None,
-                 principal_id=None, recorder_id=None, now=time.time, deploy_repo=None, infra_project_id=None):
+                 principal_id=None, recorder_id=None, now=time.time, deploy_repo=None, infra_project_id=None,
+                 gate=merge_gate.run, merge_policy=merge_gate.load_policy):
         self.pc, self.cid, self.data, self.gh, self.dry = pc, company_id, data_dir, gh, dry_run
+        self.gate, self.merge_policy = gate, merge_policy
         self.director, self.principal, self.recorder, self.now = director_id, principal_id, recorder_id, now
         self.deploy_repo, self.infra_project = deploy_repo, infra_project_id
         self.state_path = os.path.join(data_dir, "clerk-state.json")
@@ -112,7 +115,7 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.plan_gate, self.ensure_review, self.caps, self.resume_capped,
+        for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped,
                      self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
@@ -171,6 +174,67 @@ class Clerk:
                 prs.append(pr)
         self.merged_means_done(i, prs, issues)
 
+    # ---- 2b: approved and green -> the merge gate ----------------------------------------
+    def merge_approved(self, issues, by_id):
+        """Run the deterministic merge gate on each open, green PR of a recently approved task. Paperclip marks a
+        task done as soon as its review stage approves, so these are done issues. The gate alone decides; the Clerk
+        only asks, once per head. Benjamin, 2026-10-10: the Director, starved by the usage cap, used to be the only
+        caller, so approved PRs waited for him to merge by hand."""
+        try:
+            policy = self.merge_policy()
+        except (OSError, ValueError) as e:
+            self.log("merge_policy_error", error=str(e)[:200])
+            return
+        cutoff = self.now() - GATE_LOOKBACK_DAYS * 86400
+        for i in issues:
+            if i.get("status") != "done" or not merge_gate.project_policy(policy, i.get("projectId"))[0]:
+                continue
+            stages = (i.get("executionPolicy") or {}).get("stages")
+            if not stages or not merge_gate.paperclip_review_complete(i):
+                continue
+            updated = merge_gate._when(i.get("updatedAt"))
+            if updated is None or updated.timestamp() < cutoff:
+                continue
+            try:
+                self.gate_issue(i)
+            except Exception as e:  # one unreadable issue must not hide the others
+                self.log("issue_error", step="merge_approved", task=i["id"], error=str(e)[:300])
+
+    def gate_issue(self, issue):
+        for w in self.pc.work_products(issue["id"]) or []:
+            m = merge_gate.PR_URL.match(w.get("url") or "")
+            if not (m and w.get("type") == "pull_request" and w.get("provider") == "github"):
+                continue
+            repo, num = m.groups()
+            pr = self.gh(["pr", "view", num, "--repo", repo, "--json", "number,state,headRefOid,statusCheckRollup"])
+            checks = (pr or {}).get("statusCheckRollup") or []
+            if not pr or pr.get("state") != "OPEN" or not checks or any(
+                    (c.get("conclusion") or c.get("state")) in RED or not (c.get("conclusion") or c.get("state"))
+                    or (c.get("status") or "") in ("IN_PROGRESS", "QUEUED") for c in checks):
+                continue
+            key = f"gate:{issue['id']}:{repo}#{num}:{pr.get('headRefOid')}"
+            if self.handled(key):
+                continue
+            if self.dry:
+                self.mark(key)
+                self.log("dry_run", what="merge-gate", task=issue["id"], pr=int(num))
+                continue
+            request = {"issue_id": issue["id"], "repo": repo, "pr": int(num), "head_sha": pr.get("headRefOid")}
+            allowed, reasons, merged = self.gate(self.pc, request, do_merge=True)
+            if any(r.startswith("could not") for r in reasons):
+                self.log("merge_gate_retry", task=issue["id"], pr=int(num), reasons=reasons[:3])
+                continue  # evidence was unreadable: ask again next tick
+            self.mark(key)
+            self.log("merge_gate", task=issue["id"], pr=int(num), head=pr.get("headRefOid"), allowed=allowed,
+                     merged=merged, reasons=reasons[:5])
+            if merged:
+                self.notes.append(f"{issue['title']}: PR #{num} merged by the merge gate")
+            elif merge_gate.only_protected(reasons):
+                self.notes.append(f"{issue['title']}: PR #{num} labelled ready-for-benjamin (touches protected files)")
+            else:
+                self.needs_director.append(f"PR #{num} ({issue['title']}): the merge gate refused: "
+                                           + "; ".join(reasons[:3]))
+
     def unlinked(self, issue):
         m = GH_LINK.search(issue.get("description") or "")
         if not m:
@@ -213,11 +277,11 @@ class Clerk:
                              comment=f"[Clerk] {RED_LIMIT} red check runs. Handing to the Principal."):
                     self.notes.append(f"{issue['title']}: 3 red checks, handed to the Principal")
         elif pr["state"] == "OPEN" and not red and not pending and checks:
-            # The Director runs the merge gate; Benjamin hears only of PRs the gate labels ready-for-benjamin
-            # (2026-10-02: this line used to ask him to merge every green PR, so he merged them before review).
+            # merge_approved asks the merge gate once the review approves, so a green PR wakes nobody.
+            # Benjamin hears only of PRs the gate labels ready-for-benjamin (2026-10-02: this line used to
+            # ask him to merge every green PR, so he merged them before review).
             if not self.seen(f"review-ready:{iid}:{pr.get('headRefOid')}"):
-                self.notes.append(f"{issue['title']}: PR #{n} green, waiting for review/merge")
-                self.needs_director.append(f"PR #{n} ({issue['title']}) is green: once reviewed, run the merge gate")
+                self.notes.append(f"{issue['title']}: PR #{n} green, waiting for review")
 
     def merged_means_done(self, issue, prs, issues):
         """Done only when every recorded PR is closed, at least one merged, and the assignee has already put the

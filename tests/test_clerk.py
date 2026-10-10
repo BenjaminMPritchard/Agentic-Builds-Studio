@@ -110,20 +110,17 @@ class ClerkTests(unittest.TestCase):
         esc = [p for p in self.fp.patches if p[1].get("assigneeAgentId") == "prin"]
         self.assertEqual(len(esc), 1)
 
-    def test_green_open_pr_goes_to_the_director_not_the_board(self):
+    def test_green_open_pr_wakes_nobody(self):
         self.fp.add(id="t", title="Task", status="in_review")
         self.fp.add(id="inbox", title="Director inbox", status="todo")
         self.link("t", "o/r", 9)
         self.prs["o/r"] = [{"number": 9, "state": "OPEN", "headRefOid": "x", "statusCheckRollup": [{"conclusion": "SUCCESS"}]}]
-        self.clerk(dry_run=True).tick()  # a dry-run tick must not use up the wake
-        self.assertEqual(self.woken, [])
         self.clerk().tick()
         digest = self.fp.docs[("inbox", "digest")]
-        self.assertIn("PR #9 (Task) is green: once reviewed, run the merge gate", digest)
+        self.assertIn("Task: PR #9 green, waiting for review", digest)
         self.assertIn("## Needs you (Board)\n- nothing", digest)  # Benjamin merges only ready-for-benjamin PRs
         self.assertEqual(self.fp.comments, [])  # nothing for the agent to do, so no comment to wake it
-        self.assertLessEqual(len(self.fp.docs[("inbox", "digest")]), 6000)
-        self.assertIn(("dir", True), self.woken)
+        self.assertNotIn(("dir", True), self.woken)  # the Clerk asks the merge gate once the review approves
         self.woken.clear(); self.prs["o/r"][0]["headRefOid"] = "x"
         self.clerk().tick()  # same situation: do not wake the Director again
         self.assertEqual(self.woken, [])
@@ -277,6 +274,94 @@ class ClerkTests(unittest.TestCase):
         self.pc.export_company = lambda cid, out: True
         out = self.clerk().weekly()
         self.assertTrue(os.path.exists(os.path.join(out, "cost-report.json")))
+
+    # ---- the Clerk asks the merge gate about approved, green PRs (Benjamin, 2026-10-10) ----
+    GATE_POLICY = {"version": 1, "projects": {"mothers": {
+        "enabled": True, "repo": "o/r", "base_branch": "main", "merge_method": "merge", "authority_classes": ["A", "B"],
+        "required_checks": ["check"], "required_approvals": 1, "trusted_reviewers": [], "protected_paths": [],
+        "mergeable_paths": [], "authorised_by": "Benjamin", "authorised_on": "2026-09-30"}}}
+
+    def approved(self, **kw):
+        issue = dict(id="t", title="Task", status="done", projectId="mothers", updatedAt="2026-10-10T20:00:00Z",
+                     executionPolicy={"stages": [{"id": "s1", "type": "review"}]},
+                     executionState={"status": "completed", "lastDecisionOutcome": "approved",
+                                     "completedStageIds": ["s1"]})
+        issue.update(kw)
+        self.fp.add(**issue)
+        self.link(issue["id"], "o/r", 9)
+
+    def gate_clerk(self, result=(True, [], True), **kw):
+        calls = []
+        policy = lambda: self.GATE_POLICY
+        def gate(pc, request, do_merge=False):
+            calls.append((request, do_merge))
+            return result
+        c = self.clerk(gate=gate, merge_policy=policy, now=lambda: 1791676800, **kw)  # 2026-10-11
+        return c, calls
+
+    def green(self, sha="h1", checks=({"conclusion": "SUCCESS"},)):
+        self.prs["o/r"] = [{"number": 9, "state": "OPEN", "headRefOid": sha, "statusCheckRollup": list(checks)}]
+
+    def test_an_approved_green_pr_goes_to_the_merge_gate_once_per_head(self):
+        self.approved(); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [({"issue_id": "t", "repo": "o/r", "pr": 9, "head_sha": "h1"}, True)])
+        self.assertIn("Task: PR #9 merged by the merge gate", c.notes)
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [])  # same head: not asked again
+        self.green(sha="h2")
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(len(calls), 1)  # a new head is a new question
+
+    def test_the_gate_is_not_asked_without_an_approved_review(self):
+        self.approved(executionState={"status": "pending", "completedStageIds": []}); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [])
+
+    def test_the_gate_is_not_asked_for_a_task_without_a_review_stage(self):
+        self.approved(executionPolicy=None); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [])
+
+    def test_the_gate_is_not_asked_for_a_project_the_policy_does_not_authorise(self):
+        self.approved(projectId="studio"); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [])
+
+    def test_the_gate_is_not_asked_while_checks_are_red_or_running(self):
+        self.approved()
+        for checks in ([{"conclusion": "FAILURE"}], [{"status": "IN_PROGRESS"}], []):
+            self.green(checks=checks)
+            c, calls = self.gate_clerk(); c.tick()
+            self.assertEqual(calls, [], checks)
+
+    def test_old_approvals_are_left_alone(self):
+        self.approved(updatedAt="2026-09-01T00:00:00Z"); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(calls, [])
+
+    def test_a_protected_path_refusal_is_noted_and_other_refusals_go_to_the_director(self):
+        self.approved(); self.green()
+        c, _ = self.gate_clerk(result=(False, ["pull request touches protected path backend/core/models.py"], False))
+        c.tick()
+        self.assertIn("Task: PR #9 labelled ready-for-benjamin (touches protected files)", c.notes)
+        self.green(sha="h2")
+        c, _ = self.gate_clerk(result=(False, ["changes were requested"], False)); c.tick()
+        self.assertIn("PR #9 (Task): the merge gate refused: changes were requested", c.needs_director)
+
+    def test_unreadable_evidence_is_asked_again_next_tick(self):
+        self.approved(); self.green()
+        c, calls = self.gate_clerk(result=(False, ["could not collect evidence: OSError: x"], False)); c.tick()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(len(calls), 1)
+
+    def test_a_dry_run_never_asks_the_gate(self):
+        self.approved(); self.green()
+        c, calls = self.gate_clerk(dry_run=True); c.tick()
+        self.assertEqual(calls, [])
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(len(calls), 1)  # the dry run used up nothing
+
 
 
 class ClerkGitHubIdentity(unittest.TestCase):

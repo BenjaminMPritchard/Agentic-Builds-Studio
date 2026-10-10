@@ -14,6 +14,13 @@ and the Studio evaluates them deterministically. A model may *request* a merge
 `$STUDIO_DATA/log/merge-gate.jsonl` before any merge, and a failed write
 prevents the merge.
 
+**Who asks (Benjamin, 2026-10-10).** The Clerk asks the gate on every tick, with no model and no quota: for each
+`done` task in an authorised project whose Paperclip review stage approved in the last 14 days, and for each of its
+linked PRs that is open with every check green, it calls the gate once per head commit. A merged PR is noted in the
+digest; a refusal only for protected paths is labelled `ready-for-benjamin` as before; any other refusal goes to the
+Director. Unreadable evidence (`could not …`) is asked again on the next tick. A model may still request a merge
+by hand.
+
 ## Conditions (all must be proven; anything missing or ambiguous refuses)
 
 | Condition | Evidence |
