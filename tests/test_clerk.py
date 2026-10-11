@@ -526,5 +526,80 @@ class ResumeCapped(unittest.TestCase):
         self.assertEqual(self.fp.wakes, [])  # its latest run is not a refusal
 
 
+class UnblockCapped(unittest.TestCase):
+    """2026-10-11: Paperclip blocks an issue whose runs a usage cap refused, and nothing unblocked it after the
+    window reset, so every reset needed a person."""
+
+    tearDown = ClerkTests.tearDown
+    NOTE = "Paperclip retried this issue's run after it ended without finishing, but the bounded retry budget is spent"
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "b", "name": "Codex-Builder", "status": "error"},
+                          {"id": "p", "name": "Principal", "status": "paused"}]
+        self.t = 1_791_689_600  # 2026-10-11T03:33:20Z
+
+    def refusal(self, rid, issue, resets="Oct 11 02:58 UTC", provider="codex", minutes_ago=60):
+        import datetime
+        iso = datetime.datetime.fromtimestamp(self.t - minutes_ago * 60, datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z")
+        return {"id": rid, "agentId": "b", "status": "failed", "createdAt": iso, "finishedAt": iso,
+                "error": f"studio-quota: {provider} cap reached; not starting: studio 5-hour: used 34 + reserved 0 "
+                         f"+ this run 14 + margin 1 = 49 > 28 (resets {resets})",
+                "contextSnapshot": {"issueId": issue}}
+
+    def blocked(self, iid, assignee="b", **kw):
+        self.fp.add(id=iid, identifier=iid.upper(), title=iid, status="blocked", assigneeAgentId=assignee, **kw)
+        self.fp.comments.append((iid, self.NOTE))
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.t)
+        c.unblock_capped(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+
+    def test_a_cap_blocked_issue_is_unblocked_once_after_the_reset(self):
+        self.blocked("w1")
+        self.fp.runs_ = [self.refusal("r1", "w1")]
+        self.tick(); self.tick()
+        unblocks = [p for p in self.fp.patches if p[1].get("status") == "todo"]
+        self.assertEqual([p[0] for p in unblocks], ["w1"])
+        self.assertIn("usage caps refused", unblocks[0][1]["comment"])
+
+    def test_not_before_the_reset(self):
+        self.blocked("w1")
+        self.fp.runs_ = [self.refusal("r1", "w1", resets="Oct 11 04:10 UTC")]
+        self.tick()
+        self.assertEqual(self.fp.patches, [])
+
+    def test_claude_reset_text_is_read(self):
+        self.blocked("w1")
+        self.fp.runs_ = [self.refusal("r1", "w1", resets="Oct 11, 3:20am (Europe/London)", provider="claude")]
+        self.tick()  # 03:20 BST is 02:20 UTC, an hour before now
+        self.assertEqual(len(self.fp.patches), 1)
+
+    def test_left_alone_when_not_only_a_cap_block(self):
+        self.blocked("paused", assignee="p")  # a paused assignee is a human pause
+        self.blocked("open_blocker", blockedBy=[{"id": "x", "status": "in_progress"}])
+        self.blocked("later_comment")
+        self.fp.comments.append(("later_comment", "Blocked: waiting for Benjamin's decision"))
+        self.blocked("ran_later")
+        later = {**self.refusal("r9", "ran_later", minutes_ago=1), "status": "succeeded", "error": None}
+        self.fp.add(id="not_blocked", title="t", status="todo", assigneeAgentId="b")
+        self.fp.runs_ = [self.refusal("r1", "paused"), self.refusal("r2", "open_blocker"),
+                         self.refusal("r3", "later_comment"), self.refusal("r4", "ran_later", minutes_ago=90), later,
+                         self.refusal("r5", "not_blocked")]
+        self.tick()
+        self.assertEqual(self.fp.patches, [])
+
+    def test_an_unreadable_reset_waits_a_whole_window(self):
+        self.blocked("w1")
+        self.fp.runs_ = [self.refusal("r1", "w1", resets="unknown", minutes_ago=60)]
+        self.tick()
+        self.assertEqual(self.fp.patches, [])
+        self.fp.runs_ = [self.refusal("r1", "w1", resets="unknown", minutes_ago=303)]
+        self.tick()
+        self.assertEqual(len(self.fp.patches), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
