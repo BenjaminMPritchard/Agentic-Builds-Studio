@@ -18,7 +18,7 @@
   },
   "caps": {
     "claude": {"five_hour": 22, "week": 80},
-    "codex": {"five_hour": 28, "week": 80},
+    "codex": {"five_hour": 35, "week": 100},
     "_note": "Enforced by bin/studio-quota in agent-exec (policy/quota.json). Never add Claude and Codex percentages together; a route that saves Claude by spending spare Codex allowance raises throughput without being 'cheaper'."
   },
   "routes": [
