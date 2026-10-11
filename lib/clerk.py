@@ -19,6 +19,10 @@ RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
 RED_LIMIT = 3
 CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
 RESUME_AFTER = 20 * 60  # seconds after a cap refusal before the agent is woken to try again
+CAP_RESET = re.compile(r"\(resets (.+)\)\s*$")
+CODEX_RESET = re.compile(r"^([A-Z][a-z]{2}) (\d{1,2}) (\d{2}):(\d{2}) UTC$")
+STRANDED = "retry budget is spent"  # Paperclip's comment when it blocks an issue whose runs never started
+UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
 GATE_LOOKBACK_DAYS = 14
@@ -115,7 +119,7 @@ class Clerk:
     def tick(self):
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
-        for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped,
+        for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
                      self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
@@ -427,6 +431,45 @@ class Clerk:
                          self.pc.wake_agent, agent_id, True, "Usage cap refused your last run; trying again", issue):
                 self.log("resume_capped", agent=a.get("name", agent_id), run=r["id"], issue=issue)
 
+    def unblock_capped(self, issues, by_id):
+        """Move an issue back to todo when Paperclip blocked it only because usage caps refused its runs, once the
+        window named in the refusal has reset. Paperclip blocks such an issue after a few refused retries, and
+        nothing unblocked it, so after every reset someone had to (Benjamin, 2026-10-11). Only when the issue's
+        latest run is a cap refusal, its latest comment is Paperclip's own retry-budget note (so a block by a
+        person or an agent after it is left alone), no blocker is still open and its assignee is not paused.
+        If there is still no room, the run is refused again and the new refusal is handled after its reset."""
+        agents = {a["id"]: a for a in self.pc.list_agents(self.cid)}
+        latest = {}
+        for r in self.pc.runs(self.cid, limit=200):
+            iid = (r.get("contextSnapshot") or {}).get("issueId")
+            if iid and r.get("createdAt", "") > latest.get(iid, {}).get("createdAt", ""):
+                latest[iid] = r
+        for i in issues:
+            r = latest.get(i["id"])
+            if i.get("status") != "blocked" or not r or r.get("status") != "failed" \
+                    or not CAP_REFUSED.search(r.get("error") or ""):
+                continue
+            if agents.get(i.get("assigneeAgentId"), {}).get("status") == "paused":
+                continue
+            if any((b.get("status") or by_id.get(b.get("id"), {}).get("status")) not in ("done", "cancelled")
+                   for b in i.get("blockedBy") or []):
+                continue
+            reset = _cap_reset(r.get("error") or "", self.now())
+            if reset is None:  # an unreadable reset time: wait a whole window from the refusal
+                ended = _epoch(r.get("finishedAt") or r.get("createdAt"))
+                reset = ended + 5 * 3600 if ended is not None else None
+            if reset is None or self.now() < reset + UNBLOCK_GRACE or self.handled(f"unblock-capped:{r['id']}"):
+                continue
+            last = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
+            if not last or STRANDED not in (last[0].get("body") or ""):
+                continue
+            self.once(f"unblock-capped:{r['id']}", f"unblock {i.get('identifier', i['id'])} after a cap reset",
+                      self.pc.patch_issue, i["id"], status="todo",
+                      comment="[Clerk] Unblocking: this was blocked only because usage caps refused its runs, "
+                              "and that window has now reset.")
+            self.log("unblock_capped", task=i["id"], run=r["id"])
+            self.notes.append(f"{i.get('title', i['id'])}: unblocked after a usage-cap reset")
+
     def watchdog(self, issues, by_id):
         """Stuck work: retry once, then tell Benjamin in one line (lib/watchdog.py, lib/notify.py)."""
         seen = []
@@ -520,6 +563,27 @@ def _epoch(iso):
         return datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
     except (AttributeError, ValueError):
         return None
+
+
+def _cap_reset(error, now):
+    """When the window named in a cap refusal resets, as epoch seconds; None if it cannot be read. Claude's
+    readings say "Oct 11, 3:20am (Europe/London)", Codex's "Oct 11 02:58 UTC" (lib/quota.py)."""
+    import datetime
+    m = CAP_RESET.search(error)
+    if not m:
+        return None
+    text = m[1].strip()
+    c = CODEX_RESET.match(text)
+    if not c:
+        return quota.parse_reset(text, now)
+    year = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).year
+    try:
+        at = datetime.datetime(year, quota.MONTHS[c[1]], int(c[2]), int(c[3]), int(c[4]), tzinfo=datetime.timezone.utc)
+    except (KeyError, ValueError):
+        return None
+    if at.timestamp() < now - 180 * 86400:  # "Jan 2" read in late December is next year
+        at = at.replace(year=year + 1)
+    return at.timestamp()
 
 
 def _load(path):

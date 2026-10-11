@@ -63,6 +63,9 @@ class FakePaperclip(Server):
                 if m: return s.send(200, fake.run_records[m[1]]) if m[1] in fake.run_records else s.send(404, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/work-products", p)
                 if m: return s.send(200, fake.products.get(m[1], []))
+                m = re.fullmatch(r"/api/issues/(\w+)/comments", p)
+                if m: return s.send(200, [{"body": b, "createdAt": f"2026-01-01T00:00:{n:02d}Z"}
+                                          for n, (iid, b) in enumerate(fake.comments) if iid == m[1]])
                 m = re.fullmatch(r"/api/issues/(\w+)/interactions", p)
                 if m: return s.send(200, fake.interactions_.get(m[1], []))
                 m = re.fullmatch(r"/api/issues/(\w+)", p)
