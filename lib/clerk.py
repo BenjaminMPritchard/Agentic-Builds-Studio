@@ -12,7 +12,7 @@ import re
 import subprocess
 import time
 
-from lib import deploy, github_app, merge_gate, notify, quota, records, watchdog
+from lib import deploy, github_app, merge_gate, notify, phone, quota, records, watchdog
 
 GH_LINK = re.compile(r"GitHub:\s*([\w.-]+/[\w.-]+)#(\d+)")
 RED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE"}
@@ -120,7 +120,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.watchdog, self.record_runs, self.digest):
+                     self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -469,6 +469,69 @@ class Clerk:
                               "and that window has now reset.")
             self.log("unblock_capped", task=i["id"], run=r["id"])
             self.notes.append(f"{i.get('title', i['id'])}: unblocked after a usage-cap reset")
+
+    # ---- 4c: the only notices that reach Benjamin's phone (lib/phone.py) ----------------------------
+    def tell_benjamin(self, issues, by_id):
+        """Phone him once per PR head that waits for his merge, and once per human-only card he must answer.
+        Benjamin, 2026-10-12: nothing else, in plain words, saying what waits on each merge."""
+        try:
+            policy = self.merge_policy()
+        except (OSError, ValueError) as e:
+            self.log("merge_policy_error", error=str(e)[:200])
+            policy = {}
+        repos = sorted({p.get("repo") for p in (policy.get("projects") or {}).values() if p.get("repo")})
+        open_prs = {}
+        for repo in repos:
+            prs = self.gh(["pr", "list", "--repo", repo, "--state", "open", "--limit", "50", "--json",
+                           "number,title,headRefOid,isDraft,statusCheckRollup,labels,reviews,comments,url"]) or []
+            for pr in prs:
+                open_prs[(repo, pr["number"])] = pr
+                if phone.ready_for_merge(pr):
+                    self.merge_ready(repo, pr, issues)
+        live = [i for i in issues if i.get("status") not in ("done", "cancelled")]
+        for i in live:
+            for card in self.pc.interactions(i["id"]) or []:
+                if not phone.human_card(card) or phone.merge_card(card):
+                    continue
+                named = phone.prs_named(card)
+                if named and repos and not any((r, n) in open_prs for r in repos for n in named):
+                    continue  # it is about a PR that is no longer open
+                key = f"phone-card:{card['id']}"
+                if self.handled(key):
+                    continue
+                title, text = phone.card_notice(card.get("title") or "", i.get("title") or "")
+                self.ring(key, text, title, notify.link(f"/{i['identifier'].split('-')[0]}/issues/{i['identifier']}")
+                          if i.get("identifier") else None)
+
+    def merge_ready(self, repo, pr, issues):
+        key = f"phone-merge:{repo}#{pr['number']}:{pr.get('headRefOid')}"
+        if self.handled(key):
+            return
+        url = f"https://github.com/{repo}/pull/{pr['number']}"
+        linked = []
+        for i in issues:
+            if i.get("status") == "cancelled":
+                continue
+            if any(merge_gate.PR_URL.match(w.get("url") or "") and (w.get("url") or "").rstrip("/") == url
+                   for w in self.pc.work_products(i["id"]) or [] if w.get("type") == "pull_request"):
+                linked.append(i)
+        work = [i for i in linked if not re.match(r"\s*review pr #", i.get("title") or "", re.I)]
+        what = phone.plain(work[0]["title"]) if work else phone.plain(pr.get("title") or "")
+        ids = {i["id"] for i in linked}
+        blocked = [phone.plain(i["title"]) for i in issues if i.get("status") not in ("done", "cancelled")
+                   and i["id"] not in ids and ids & set(i.get("blockedByIssueIds") or [])]
+        title, text = phone.merge_notice(pr["number"], what, list(dict.fromkeys(blocked)))
+        self.ring(key, text, title, url)
+
+    def ring(self, key, text, title, click=None):
+        self.needs_board.append(f"{title}: {text.splitlines()[0]}")
+        if self.dry:
+            self.mark(key)
+            self.log("dry_run", what="phone", title=title)
+            return
+        notify.send(self.data, text, self.now(), phone=True, title=title, click=click)
+        self.mark(key)
+        self.log("phone", key=key, title=title)
 
     def watchdog(self, issues, by_id):
         """Stuck work: retry once, then tell Benjamin in one line (lib/watchdog.py, lib/notify.py)."""

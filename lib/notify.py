@@ -1,12 +1,14 @@
-"""One-line notices to Benjamin about stuck work (lib/watchdog.py) and PRs ready for his merge (lib/merge_gate.py).
+"""Notices to Benjamin. Every notice is logged to <data>/log/notify.jsonl; the Clerk's digest lists them too.
 
-Every notice is logged to <data>/log/notify.jsonl and listed in the Clerk's digest. When /etc/studio/notify.json
-names a channel, it is also pushed there:
+Only three kinds reach his phone (Benjamin, 2026-10-12): a PR waiting for his merge, a decision only he can make
+(a human-only Paperclip card) and "the Studio is down". Callers pass `phone=True` for those, with a short `title`
+and, when there is one, a `click` link. Everything else (usage-cap pauses, retries, blocked or finished work) is
+logged only. Phone notices are sent at once, day or night. When /etc/studio/notify.json names a channel they are
+pushed there:
 
   {"ntfy_url": "https://<host>/<topic>", "token_file": "/etc/studio/ntfy-token"}   # token_file optional
 
-During quiet hours (22:00-07:00 local) notices are held, then sent together as one message by the first Clerk
-tick after them (`flush`). A notice that could not be sent waits with them for the next try.
+A phone notice that could not be sent is kept and retried by the next Clerk tick (`flush`).
 A notice is text only: no secrets, keys or customer data, because it leaves the machine.
 """
 import json
@@ -15,10 +17,8 @@ import time
 import urllib.request
 
 CONFIG = os.environ.get("STUDIO_NOTIFY_CONFIG", "/etc/studio/notify.json")
-QUIET = (22, 7)  # local hours: from 22:00 until 07:00
-# ntfy refuses a message over 4,096 bytes. 2026-10-03: 22 notices held overnight came to 4.2 KB, every push was
-# refused from then on, and each refusal added one more. So a combined message keeps the newest notices that fit.
-MAX_BYTES = 3800
+QUIET = (22, 7)  # local hours, 22:00-07:00: the watchdog wakes no agent then. Phone notices still go at once.
+MAX_BYTES = 3800  # ntfy refuses a message over 4,096 bytes
 MAX_HELD = 60
 
 
@@ -35,8 +35,16 @@ def _config(path):
         return None
 
 
-def _push(cfg, text):
-    headers = {"Title": "Agentic Studio", "Tags": "warning"}
+def link(path, config=None):
+    """A Paperclip page for a notice's tap, when notify.json names `paperclip_url` (reachable from the phone)."""
+    base = (_config(config or CONFIG) or {}).get("paperclip_url")
+    return base.rstrip("/") + path if base else None
+
+
+def _push(cfg, text, title="Agentic Studio", click=None):
+    headers = {"Title": title.encode("ascii", "ignore").decode(), "Tags": "bell"}  # HTTP headers are ASCII
+    if click:
+        headers["Click"] = click
     if cfg.get("token_file"):
         with open(cfg["token_file"]) as f:
             headers["Authorization"] = "Bearer " + f.read().strip()
@@ -45,62 +53,46 @@ def _push(cfg, text):
         return 200 <= r.status < 300
 
 
-def combined(held, text=None):
-    """One message from the held notices (and a new one): repeats removed, newest kept, under ntfy's limit."""
-    lines = list(dict.fromkeys([t[:600] for t in held] + ([text[:600]] if text else [])))
-    if not held:
-        return lines[-1]
-    kept, size = [], len("Earlier:\n")
-    for t in reversed(lines):
-        size += len(f"- {t}\n".encode())
-        if size > MAX_BYTES - 80:
-            break
-        kept.insert(0, t)
-    dropped = len(lines) - len(kept)
-    return "\n".join(["Earlier:"] + ([f"- ({dropped} earlier notices are in the Clerk's digest)"] if dropped else [])
-                     + [f"- {t}" for t in kept])
-
-
-def send(data_dir, text, now=None, config=None, push=_push):
-    """Log a notice and push it (or hold it during quiet hours). Returns "sent", "held", "logged" or "failed"."""
-    now = time.time() if now is None else now
+def _log(data_dir, now, text, outcome, title=None):
     log_dir = os.path.join(data_dir, "log")
     os.makedirs(log_dir, exist_ok=True)
-    held_path = os.path.join(data_dir, "notify-held.json")
+    rec = {"ts": int(now), "text": text, "outcome": outcome, **({"title": title} if title else {})}
+    with open(os.path.join(log_dir, "notify.jsonl"), "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+def _try(cfg, push, notice):
+    try:
+        return bool(push(cfg, notice["text"][:MAX_BYTES], notice.get("title") or "Agentic Studio", notice.get("click")))
+    except Exception:  # a channel that is down must not stop the Clerk; the log and digest still have it
+        return False
+
+
+def send(data_dir, text, now=None, config=None, push=_push, phone=False, title=None, click=None):
+    """Log a notice; with phone=True also push it now. Returns "sent", "failed" (kept for retry) or "logged"."""
+    now = time.time() if now is None else now
     cfg = _config(config or CONFIG)
     outcome = "logged"
-    if cfg and cfg.get("ntfy_url"):
-        held = _config(held_path) or []
-        if quiet(now):
-            held.append(text)
-            outcome = "held"
-        else:
-            body = combined(held, text)
-            try:
-                outcome = "sent" if push(cfg, body) else "failed"
-            except Exception:  # a channel that is down must not stop the Clerk; the log and digest still have it
-                outcome = "failed"
-            # Sent: the held notices went with it. Not sent: this one waits with them for the next try.
-            held = [] if outcome == "sent" else held + [text]
-        with open(held_path, "w") as f:
-            json.dump(held[-MAX_HELD:], f)
-    with open(os.path.join(log_dir, "notify.jsonl"), "a") as f:
-        f.write(json.dumps({"ts": int(now), "text": text, "outcome": outcome}) + "\n")
+    if phone and cfg and cfg.get("ntfy_url"):
+        notice = {"text": text, "title": title, "click": click}
+        outcome = "sent" if _try(cfg, push, notice) else "failed"
+        if outcome == "failed":
+            held_path = os.path.join(data_dir, "notify-held.json")
+            held = [h for h in (_config(held_path) or []) if isinstance(h, dict)]
+            with open(held_path, "w") as f:
+                json.dump((held + [notice])[-MAX_HELD:], f)
+    _log(data_dir, now, text, outcome, title)
     return outcome
 
 
 def flush(data_dir, now=None, config=None, push=_push):
-    """Send the notices held overnight as one message, once quiet hours are over."""
-    now = time.time() if now is None else now
+    """Retry phone notices that could not be sent. Returns True when nothing is left waiting."""
     held_path = os.path.join(data_dir, "notify-held.json")
-    held, cfg = _config(held_path) or [], _config(config or CONFIG)
-    if not held or quiet(now) or not (cfg and cfg.get("ntfy_url")):
-        return False
-    try:
-        ok = push(cfg, combined(held))
-    except Exception:
-        return False
-    if ok:
-        with open(held_path, "w") as f:
-            json.dump([], f)
-    return ok
+    held = [h for h in (_config(held_path) or []) if isinstance(h, dict)]  # old plain-text entries were log-only
+    cfg = _config(config or CONFIG)
+    if not (cfg and cfg.get("ntfy_url")):
+        return not held
+    left = [h for h in held if not _try(cfg, push, h)]
+    with open(held_path, "w") as f:
+        json.dump(left, f)
+    return not left

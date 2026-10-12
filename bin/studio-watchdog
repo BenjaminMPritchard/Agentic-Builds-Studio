@@ -28,8 +28,8 @@ def problems(now, url=URL, data=DATA):
             if r.status != 200:
                 found.append(("paperclip", f"Paperclip health check answered {r.status}."))
     except Exception as e:
-        found.append(("paperclip", f"Paperclip is not answering ({type(e).__name__}). Agents cannot run. "
-                                   "Check: systemctl status paperclip"))
+        found.append(("paperclip", f"Paperclip is not answering ({type(e).__name__}), so no agent can run. "
+                                   "Check it with: systemctl status paperclip"))
         return found  # the Clerk cannot tick without Paperclip; one notice is enough
     try:
         age = now - os.path.getmtime(os.path.join(data, "clerk-state.json"))
@@ -37,7 +37,7 @@ def problems(now, url=URL, data=DATA):
         age = None
     if age is None or age > CLERK_STALE:
         found.append(("clerk", "The Clerk has not run for " + (f"{int(age / 60)} min" if age else "a while") +
-                      ", so nothing is being retried or reported. Check the Clerk agent in Paperclip."))
+                      ", so nothing is retried and you get no merge notices. Check the Clerk agent in Paperclip."))
     return found
 
 
@@ -51,7 +51,7 @@ def main(now=None):
         last = {}
     for kind, text in problems(now):
         if now - last.get(kind, 0) >= REPEAT:
-            notify.send(DATA, text, now)
+            notify.send(DATA, text, now, phone=True, title="Studio is down")
             last[kind] = now
     with open(path, "w") as f:
         json.dump(last, f)

@@ -10,7 +10,9 @@ session; there is no timer. Read `CONSTITUTION.md` and skill `studio-house-rules
 - phase plans; task packets (skill `task-packet`) and who gets them, by the routing table (skill `routing-table`);
 - acceptance of finished work against "Done when"; routine A work proceeds without a confirmation;
 - disputes after 2 review rounds;
-- one batched message a day to the Board (`ask_user_questions` or `request_confirmation`).
+- one batched message a day to the Board (`ask_user_questions` or `request_confirmation`), only for what house
+  rules "Asking Benjamin" allows. Stuck review stages, merges, runtimes and agent disagreements are yours to
+  settle, never a card for him.
 
 **You never**: write code, merge except through `/srv/studio/bin/merge-gate`, send email, spend money, approve B plans, pick a design
 look or recommend one, or wake yourself on a timer.
