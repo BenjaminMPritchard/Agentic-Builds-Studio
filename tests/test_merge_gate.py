@@ -256,8 +256,23 @@ class Cases(Base):
         self.assertRefused(lambda e: e["pr"].__setitem__("mergeable", None), "cleanly mergeable")
 
     # 33
-    def test_mergeable_state_blocked(self):
-        self.assertRefused(lambda e: e["pr"].__setitem__("mergeable_state", "blocked"), "cleanly mergeable")
+    def test_mergeable_state_dirty(self):
+        self.assertRefused(lambda e: e["pr"].__setitem__("mergeable_state", "dirty"), "cleanly mergeable")
+
+    def test_mergeable_state_blocked_by_the_merge_gate_ruleset_is_allowed(self):
+        # 2026-10-12: the Merge Gate ruleset lets only the gate's App update main, so GitHub shows every PR as
+        # "blocked" and the gate refused all of them.
+        e = ev(); e["pr"]["mergeable_state"] = "blocked"
+        self.assertEqual(evaluate(policy(), req(), e), [])
+
+    def test_done_after_an_approving_review_stage_is_allowed_otherwise_refused(self):
+        e = ev()
+        e["issue"]["status"] = "done"
+        e["issue"]["executionPolicy"] = {"stages": [{"id": "s1", "type": "review"}]}
+        e["issue"]["executionState"] = {"status": "completed", "completedStageIds": ["s1"],
+                                        "lastDecisionOutcome": "approved"}
+        self.assertEqual(evaluate(policy(), req(), e), [])
+        self.assertRefused(lambda x: x["issue"].__setitem__("status", "done"), "not in_review")  # no review stage
 
     # 34
     def test_label_needs_human(self):
