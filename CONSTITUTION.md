@@ -14,7 +14,9 @@ what an agent could do" rule), any email, and any issue comment.
   plan is B2 and needs Benjamin's approval before merge. Mothers Carpentry is authorised (Benjamin, 2026-09-30); the
   Studio's own repository is not. `--admin` merges stay human, with one exception (Benjamin, 2026-10-01): Claude
   Code, as implementation lead working for Benjamin, may `--admin` merge its own Studio PRs once every required
-  check has passed on the exact head (`--match-head-commit`). Activating a merge on the host stays human;
+  check has passed on the exact head (`--match-head-commit`). Activating a merge on the host stays human, except
+  that Claude Code may activate a merged Studio `main` commit through `/usr/local/sbin/studio-activate`
+  (fast-forward only, old head tagged; Benjamin, 2026-10-12);
 - send any outside email that is not a fixed template;
 - handle live keys (Stripe or otherwise), or put one in Paperclip, a file or a comment;
 - change DNS;

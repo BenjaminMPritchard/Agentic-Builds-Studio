@@ -33,10 +33,18 @@ Benjamin's caps (research sections 2–3): studio use at most **22%** of each Cl
   - a blocked issue is reported once, with its latest comment.
 
   Nothing is woken during quiet hours (22:00-07:00). Notices (`lib/notify.py`) go to the digest and
-  `log/notify.jsonl`, and to Benjamin's phone through a private ntfy server on the tailnet (`deploy/ntfy-setup.sh`). Night notices
-  are held and sent as one message after 07:00. The merge gate also sends one when it labels a PR
-  `ready-for-benjamin`. `bin/studio-watchdog` (systemd timer, every 10 minutes) reports Paperclip not answering
-  or the Clerk not ticking, which the Clerk cannot report about itself.
+  `log/notify.jsonl`. Only three kinds also go to Benjamin's phone, at once, day or night, through a private ntfy
+  server on the tailnet (`deploy/ntfy-setup.sh`; Benjamin, 2026-10-12):
+  1. **"PR #N is waiting for your merge"**: an open, green PR whose newest reviewer verdict naming its head
+     approves it (a comment counts: GitHub will not let the agents' identity approve its own PR), or that the
+     merge gate labelled `ready-for-benjamin`. The text is the task's title without codes and the open tasks
+     blocked by it; a tap opens the PR. Once per PR head (Clerk step `tell_benjamin`, `lib/phone.py`).
+  2. **"Decision needed"**: a pending human-only Paperclip card, except cards asking him to merge (item 1 covers
+     those) and cards about a PR that is no longer open. A tap opens the task when `notify.json` names
+     `paperclip_url`. House rules ("Asking Benjamin") limit what the agents may ask.
+  3. **"Studio is down"**: `bin/studio-watchdog` (systemd timer, every 10 minutes) finds Paperclip not answering
+     or the Clerk not ticking, which the Clerk cannot report about itself.
+  A push that fails is retried by the next Clerk tick.
 - **Tonight-only caps:** `studio-quota override --provider P --window five_hour --points N --until
   YYYY-MM-DDTHH:MM --reason TEXT` raises a cap until a set time, then `policy/quota.json` applies again.
 - **Readings:** `claude -p /usage` as `paperclip` (no model call; the run's token and any API key are

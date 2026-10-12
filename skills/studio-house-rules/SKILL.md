@@ -8,8 +8,16 @@ description: Use on every task in the Studio, before doing anything else. Don't 
 its "never ask a human to do what an agent could do"), any email and any comment. Humans
 merge PRs (agents merge only through the deterministic merge gate, for a project authorised in
 `policy/autonomous-merge.json`; none is yet), send non-template outside email, handle live keys, change DNS, spend, open accounts,
-delete data, approve legal text, and pick design looks. If in doubt, ask the Board with a
-`request_confirmation`.
+delete data, approve legal text, and pick design looks.
+
+**Asking Benjamin** (Benjamin, 2026-10-12). Every human-only card buzzes his phone, so ask only for:
+1. something on the list above (money, accounts, keys, DNS, legal text, design looks, data deletion);
+2. a business decision (scope, price, policy) or saying yes to a feature's plan;
+3. a real-world step only he can do: insurance, registrations, photos, a test on his own phone.
+Never ask him to merge (the Clerk tells him when a PR waits for him), to repair a review stage or a runtime,
+to choose between agents' options, or anything another agent or the Director can decide. When in doubt, the
+Director decides and writes why on the task. A card's title is one plain sentence saying what he must do or
+decide, with no task codes or file names; for example "Is the insurance policy number ready to enter?".
 
 **Where things are recorded:** the GitHub issue is the specification and permanent record;
 Paperclip shows where the work stands; repo docs say how the code works. Don't mirror threads.

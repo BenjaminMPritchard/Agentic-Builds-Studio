@@ -148,53 +148,6 @@ class Plan(unittest.TestCase):
         self.assertEqual(watchdog.plan(NOON, AGENTS, [], new, watch), [])
 
 
-class Notify(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.cfg = os.path.join(self.tmp.name, "notify.json")
-        json.dump({"ntfy_url": "https://example.invalid/t"}, open(self.cfg, "w"))
-        self.pushed = []
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def push(self, cfg, text):
-        self.pushed.append(text)
-        return True
-
-    def test_sent_by_day_held_at_night_and_flushed_in_the_morning(self):
-        d = self.tmp.name
-        self.assertEqual(notify.send(d, "a", NOON, self.cfg, self.push), "sent")
-        self.assertEqual(notify.send(d, "b", NIGHT, self.cfg, self.push), "held")
-        self.assertEqual(notify.send(d, "c", NIGHT, self.cfg, self.push), "held")
-        self.assertTrue(notify.flush(d, NOON + 86400, self.cfg, self.push))
-        self.assertEqual(self.pushed, ["a", "Earlier:\n- b\n- c"])
-        self.assertFalse(notify.flush(d, NOON + 86400, self.cfg, self.push))  # nothing left
-        self.assertEqual(len(open(os.path.join(d, "log", "notify.jsonl")).readlines()), 3)
-
-    def test_without_a_channel_it_is_only_logged_and_a_failing_channel_does_not_raise(self):
-        d = self.tmp.name
-        self.assertEqual(notify.send(d, "a", NOON, os.path.join(d, "none.json")), "logged")
-
-        def broken(cfg, text):
-            raise OSError("down")
-        self.assertEqual(notify.send(d, "b", NOON, self.cfg, broken), "failed")
-        self.assertEqual(notify.send(d, "c", NOON, self.cfg, self.push), "sent")
-        self.assertEqual(self.pushed, ["Earlier:\n- b\n- c"])  # the failed one went with the next
-
-    def test_a_large_backlog_is_cut_to_fit_ntfy_newest_first(self):
-        # 2026-10-03: 22 held notices made a 4.2 KB message; ntfy refuses over 4,096 bytes, so nothing got through.
-        d = self.tmp.name
-        for n in range(40):
-            notify.send(d, f"notice {n} " + "x" * 150, NIGHT, self.cfg, self.push)
-        notify.send(d, "notice 40 " + "x" * 150, NIGHT, self.cfg, self.push)
-        self.assertTrue(notify.flush(d, NOON + 86400, self.cfg, self.push))
-        body = self.pushed[-1]
-        self.assertLessEqual(len(body.encode()), notify.MAX_BYTES)
-        self.assertIn("earlier notices are in the Clerk's digest", body)
-        self.assertTrue(body.rstrip().endswith("notice 40 " + "x" * 150))
-
-
 class Outside(unittest.TestCase):
     def load(self):
         loader = importlib.machinery.SourceFileLoader("studio_watchdog", os.path.join(ROOT, "bin", "studio-watchdog"))
