@@ -11,7 +11,7 @@
     "max_run_hours": 6
   },
   "codex": {
-    "five_hour_cap": 35,
+    "five_hour_cap": 60,
     "weekly_cap": 100,
     "personal_weekly": 0,
     "margin": {"five_hour": 1, "week": 0.5},

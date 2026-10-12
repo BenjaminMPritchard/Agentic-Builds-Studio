@@ -477,7 +477,7 @@ class Cli(unittest.TestCase):
     def test_codex_reading_and_its_own_cap(self):
         self.fake_codex(10, 37)
         s = json.loads(self.q("status", "--provider", "codex").stdout)
-        self.assertEqual((s["account"], s["caps"]), ({"five_hour": 10.0, "week": 37.0}, {"five_hour": 35, "week": 100}))
+        self.assertEqual((s["account"], s["caps"]), ({"five_hour": 10.0, "week": 37.0}, {"five_hour": 60, "week": 100}))
         r = self.q("admit", "--provider", "codex", "--agent", "cx", "--pid", str(os.getpid()))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.fake_codex(100, 37)  # the account's five-hour window is used up
