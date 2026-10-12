@@ -193,11 +193,13 @@ class Clerk:
         for i in issues:
             if i.get("status") != "done" or not merge_gate.project_policy(policy, i.get("projectId"))[0]:
                 continue
-            stages = (i.get("executionPolicy") or {}).get("stages")
-            if not stages or not merge_gate.paperclip_review_complete(i):
-                continue
             updated = merge_gate._when(i.get("updatedAt"))
             if updated is None or updated.timestamp() < cutoff:
+                continue
+            if "executionPolicy" not in i:  # the issue list leaves it out; without it no task ever reached the gate
+                i = self.pc.get_issue(i["id"]) or i
+            stages = (i.get("executionPolicy") or {}).get("stages")
+            if not stages or not merge_gate.paperclip_review_complete(i):
                 continue
             try:
                 self.gate_issue(i)

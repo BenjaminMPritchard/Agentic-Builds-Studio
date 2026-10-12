@@ -228,8 +228,12 @@ def evaluate(policy, request, ev):
     risk = risk if risk in ("low", "medium", "high") else "high"
 
     # Paperclip state and linkage.
-    if issue.get("status") != "in_review":
-        no(f"issue status is {issue.get('status')}, not in_review")
+    # Paperclip marks a task done as soon as its review stage approves, so done counts when that stage did.
+    policy_ = issue.get("executionPolicy")
+    stages = policy_.get("stages") if isinstance(policy_, dict) else None
+    reviewed_done = issue.get("status") == "done" and bool(stages) and paperclip_review_complete(issue)
+    if issue.get("status") != "in_review" and not reviewed_done:
+        no(f"issue status is {issue.get('status')}, not in_review (or done after an approving review stage)")
     if any(b.get("status") != "done" for b in issue.get("blockedBy") or []):
         no("issue has unresolved blockers")
     if not paperclip_review_complete(issue):
@@ -256,7 +260,9 @@ def evaluate(policy, request, ev):
         no(f"pull request targets {pr.get('base_ref')}, not {proj['base_branch']}")
     if pr.get("head_sha") != sha:
         no("pull request head moved: it is not the expected SHA")
-    if pr.get("mergeable") is not True or pr.get("mergeable_state") != "clean":
+    # "blocked" is what every PR shows under the Merge Gate ruleset, which lets only this App update main. The
+    # gate checks the required checks and reviews itself, and GitHub refuses the merge if anything else blocks it.
+    if pr.get("mergeable") is not True or pr.get("mergeable_state") not in ("clean", "blocked"):
         no(f"GitHub does not report the pull request as cleanly mergeable ({pr.get('mergeable_state')})")
     labels = {str(x).lower() for x in pr.get("labels") or []}
     if labels & BLOCKING_LABELS:

@@ -313,6 +313,15 @@ class ClerkTests(unittest.TestCase):
         c, calls = self.gate_clerk(); c.tick()
         self.assertEqual(len(calls), 1)  # a new head is a new question
 
+    def test_the_review_policy_is_read_from_the_issue_when_the_list_leaves_it_out(self):
+        # 2026-10-12: Paperclip's issue list omits executionPolicy, so the gate was never asked for any task.
+        self.approved(); self.green()
+        full = self.pc.list_issues
+        self.pc.list_issues = lambda cid: [{k: v for k, v in i.items() if k not in ("executionPolicy", "executionState")}
+                                           for i in full(cid)]
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(len(calls), 1)
+
     def test_the_gate_is_not_asked_without_an_approved_review(self):
         self.approved(executionState={"status": "pending", "completedStageIds": []}); self.green()
         c, calls = self.gate_clerk(); c.tick()
