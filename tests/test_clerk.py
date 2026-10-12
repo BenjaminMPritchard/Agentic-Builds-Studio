@@ -612,3 +612,113 @@ class UnblockCapped(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RestartReviews(unittest.TestCase):
+    """2026-10-12: Paperclip woke each reviewer once; the usage cap refused the run and #86, #93 and #94 waited a
+    day for a review while Codex had its whole week unused."""
+
+    tearDown = ClerkTests.tearDown
+    T = 1_791_840_000  # 2026-10-12T19:20:00Z
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "prin", "name": "Principal", "status": "idle"},
+                          {"id": "cx", "name": "Codex-Principal", "status": "idle"},
+                          {"id": "b", "name": "Builder-1", "status": "idle"}]
+        self.woken = []
+        self.pc.wake_agent = lambda a, fresh=True, reason="", issue=None: self.woken.append((a, issue)) or True
+
+    def iso(self, minutes_ago):
+        import datetime
+        return datetime.datetime.fromtimestamp(self.T - minutes_ago * 60, datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z")
+
+    def review(self, iid, status="in_review", reviewer="prin", stages=None):
+        stages = stages or [{"id": "s1", "type": "review", "participants": [{"type": "agent", "agentId": reviewer}]}]
+        self.fp.add(id=iid, identifier=iid.upper(), title=iid, status=status, assigneeAgentId="b",
+                    updatedAt=self.iso(120), executionPolicy={"mode": "normal", "stages": stages},
+                    executionState={"status": "pending", "currentStageType": "review",
+                                    "currentParticipant": {"type": "agent", "agentId": reviewer}})
+
+    def a_run(self, rid, agent, issue, minutes_ago, status="failed", capped=True):
+        return {"id": rid, "agentId": agent, "status": status, "createdAt": self.iso(minutes_ago),
+                "finishedAt": self.iso(minutes_ago), "contextSnapshot": {"issueId": issue},
+                "error": "studio-quota: claude cap reached; not starting: studio 5-hour" if capped else None}
+
+    def tick(self, t=None):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: t or self.T)
+        c.restart_reviews(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+
+    def reviewers(self, iid):
+        return [p["agentId"] for s in self.fp.issues[iid]["executionPolicy"]["stages"] for p in s["participants"]]
+
+    def test_a_capped_reviewer_hands_the_review_to_the_other_principal_once(self):
+        self.review("r1")
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60)]
+        self.tick(); self.tick()
+        self.assertEqual(self.reviewers("r1"), ["cx"])
+        self.assertEqual(self.woken, [("cx", "r1")])
+
+    def test_an_uncapped_reviewer_is_woken_again(self):
+        self.review("r1")
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        self.tick()
+        self.assertEqual(self.reviewers("r1"), ["prin"])
+        self.assertEqual(self.woken, [("prin", "r1")])
+
+    def test_the_other_principal_is_not_used_when_it_already_reviews_this_task(self):
+        self.review("r1", stages=[{"id": "s1", "type": "review", "participants": [{"type": "agent", "agentId": "cx"}]},
+                                  {"id": "s2", "type": "review", "participants": [{"type": "agent", "agentId": "prin"}]}])
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60)]
+        self.tick()
+        self.assertEqual(self.reviewers("r1"), ["cx", "prin"])
+        self.assertEqual(self.woken, [("prin", "r1")])
+
+    def test_a_stage_paperclip_gave_up_on_is_restored(self):
+        self.review("r1", status="blocked")
+        self.fp.comments.append(("r1", "Paperclip retried the pending execution-review participant once, but ..."))
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        self.tick()
+        self.assertEqual([p[1]["executionPolicy"]["stages"][0]["participants"][0]["agentId"]
+                          for p in self.fp.patches if "executionPolicy" in p[1]], ["cx", "prin"])
+        self.assertEqual(self.woken, [("prin", "r1")])
+
+    def test_left_alone(self):
+        self.review("live"); self.review("recent"); self.review("person_blocked", status="blocked")
+        self.fp.comments.append(("person_blocked", "Blocked: waiting for Benjamin"))
+        self.review("merged")
+        self.fp.products["merged"] = [{"type": "pull_request", "status": "merged"}]
+        self.fp.runs_ = [self.a_run("x0", "prin", "merged", 90),
+                         self.a_run("x1", "prin", "live", 5, status="running", capped=False),
+                         self.a_run("x2", "prin", "recent", 10), self.a_run("x3", "prin", "person_blocked", 90)]
+        self.tick()
+        self.assertEqual((self.woken, self.fp.patches), ([], []))
+
+
+class ResumeThroughDeadRetries(unittest.TestCase):
+    tearDown = ClerkTests.tearDown
+    T = RestartReviews.T
+    iso, a_run = RestartReviews.iso, RestartReviews.a_run
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "prin", "name": "Principal", "status": "error"}]
+        self.woken = []
+        self.pc.wake_agent = lambda a, fresh=True, reason="", issue=None: self.woken.append((a, issue)) or True
+
+    def retry(self, due_minutes_ago):
+        return {"id": "s1", "agentId": "prin", "status": "scheduled_retry", "createdAt": self.iso(25),
+                "scheduledRetryAt": self.iso(due_minutes_ago), "contextSnapshot": {"issueId": "t"}}
+
+    def test_a_stale_scheduled_retry_does_not_hide_the_refusal_under_it(self):
+        # AGE-77: the latest run was a retry due at 02:53 that never started, on top of cap refusals.
+        self.fp.runs_ = [self.a_run("f1", "prin", "t", 30), self.retry(due_minutes_ago=24)]
+        Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T).resume_capped([], {})
+        self.assertEqual(self.woken, [("prin", "t")])
+
+    def test_a_retry_not_yet_due_still_counts(self):
+        self.fp.runs_ = [self.a_run("f1", "prin", "t", 30), self.retry(due_minutes_ago=-5)]
+        Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T).resume_capped([], {})
+        self.assertEqual(self.woken, [])

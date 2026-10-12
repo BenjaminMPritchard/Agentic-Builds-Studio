@@ -87,6 +87,21 @@ class TellBenjamin(unittest.TestCase):
         self.tick()
         self.assertEqual(len(self.pushed), 2)  # a new head is a new notice
 
+    def test_no_merge_notice_until_every_review_stage_has_approved(self):
+        # 2026-10-12: #86 was pinged after Codex-Principal approved, before the Principal's second stage ran.
+        stages = [{"id": "s1", "type": "review"}, {"id": "s2", "type": "review"}]
+        self.fp.add(id="w", identifier="AGE-51", title="Basket hold", status="in_review",
+                    executionPolicy={"stages": stages},
+                    executionState={"status": "pending", "completedStageIds": ["s1"], "lastDecisionOutcome": "approved"})
+        self.fp.products["w"] = [{"type": "pull_request", "url": f"https://github.com/{REPO}/pull/92"}]
+        self.prs = [pr(comments=[said(f"Codex-Principal review: approved at {HEAD[:7]}")])]
+        self.tick()
+        self.assertEqual(self.pushed, [])
+        self.fp.issues["w"]["executionState"] = {"status": "completed", "completedStageIds": ["s1", "s2"],
+                                                 "lastDecisionOutcome": "approved"}
+        self.tick()
+        self.assertEqual(len(self.pushed), 1)
+
     def test_only_human_cards_that_are_not_merges_or_about_closed_prs(self):
         self.fp.add(id="t", identifier="AGE-44", title="Plan 8L: legal compliance", status="blocked")
         card = {"kind": "request_confirmation", "status": "pending", "resolverPolicy": "human_only", "payload": {}}

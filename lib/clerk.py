@@ -21,7 +21,9 @@ CAP_REFUSED = re.compile(r"studio-quota: \w+ cap reached")
 RESUME_AFTER = 20 * 60  # seconds after a cap refusal before the agent is woken to try again
 CAP_RESET = re.compile(r"\(resets (.+)\)\s*$")
 CODEX_RESET = re.compile(r"^([A-Z][a-z]{2}) (\d{1,2}) (\d{2}):(\d{2}) UTC$")
-STRANDED = "retry budget is spent"  # Paperclip's comment when it blocks an issue whose runs never started
+STRANDED = "retry budget is spent"
+STRANDED_REVIEW = "pending execution-review participant"  # Paperclip's comment when it blocks a review that never ran
+REVIEW_STALL = 30 * 60  # seconds without a reviewer run before the Clerk steps in  # Paperclip's comment when it blocks an issue whose runs never started
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
@@ -120,7 +122,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
+                     self.restart_reviews, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -418,6 +420,8 @@ class Clerk:
         agents = {a["id"]: a for a in self.pc.list_agents(self.cid)}
         latest = {}
         for r in self.pc.runs(self.cid, limit=200):
+            if self.dead_retry(r):  # 2026-10-12 (AGE-77): a retry that never started hid the refusal under it
+                continue
             if r.get("createdAt", "") > latest.get(r["agentId"], {}).get("createdAt", ""):
                 latest[r["agentId"]] = r
         for agent_id, r in latest.items():
@@ -432,6 +436,81 @@ class Clerk:
             if self.once(f"resume-capped:{r['id']}", f"wake {a.get('name', agent_id)} after a cap refusal",
                          self.pc.wake_agent, agent_id, True, "Usage cap refused your last run; trying again", issue):
                 self.log("resume_capped", agent=a.get("name", agent_id), run=r["id"], issue=issue)
+
+    def dead_retry(self, r):
+        """A Paperclip scheduled retry that was due more than RESUME_AFTER ago and never started."""
+        due = _epoch(r.get("scheduledRetryAt")) if r.get("status") == "scheduled_retry" else None
+        return due is not None and self.now() - due > RESUME_AFTER
+
+    def restart_reviews(self, issues, by_id):
+        """Give a review that never started a reviewer run. Paperclip wakes the reviewer once when a task enters
+        review; if a usage cap refuses that run, the review waits for ever, and after one retry Paperclip blocks
+        the task (2026-10-12: #86, #93 and #94 waited a day while Codex sat unused). After REVIEW_STALL with no
+        reviewer run, the stage goes to the other principal when the reviewer's provider is capped and the other
+        is not already a reviewer on the task or its author; otherwise the same reviewer is woken again."""
+        agents = {a["id"]: a for a in self.pc.list_agents(self.cid)}
+        by_name = {a.get("name"): a["id"] for a in agents.values()}
+        principal, codex = by_name.get("Principal"), by_name.get("Codex-Principal")
+        other = {principal: codex, codex: principal} if principal and codex else {}
+        runs = [r for r in self.pc.runs(self.cid, limit=200) if not self.dead_retry(r)]
+        latest = {}
+        for r in runs:
+            if r.get("createdAt", "") > latest.get(r["agentId"], {}).get("createdAt", ""):
+                latest[r["agentId"]] = r
+        capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")}
+        now = self.now()
+        for i in issues:
+            if i.get("status") not in ("in_review", "blocked"):
+                continue
+            full = self.pc.get_issue(i["id"])  # the issue list leaves out the review state
+            state, policy = full.get("executionState") or {}, full.get("executionPolicy") or {}
+            who = (state.get("currentParticipant") or {}).get("agentId")
+            if state.get("status") != "pending" or state.get("currentStageType") != "review" or not who \
+                    or agents.get(who, {}).get("status") == "paused":
+                continue
+            if i["status"] == "blocked":
+                note = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
+                if not note or STRANDED_REVIEW not in (note[0].get("body") or ""):
+                    continue  # blocked by someone, not by Paperclip giving up on the reviewer
+            prs = [w for w in self.pc.work_products(i["id"]) or [] if w.get("type") == "pull_request"]
+            if prs and all(w.get("status") in ("merged", "closed") for w in prs):
+                continue  # nothing left to review: its PR is merged or closed
+            mine = [r for r in runs if r.get("agentId") == who and (r.get("contextSnapshot") or {}).get("issueId") == i["id"]]
+            if any(r.get("status") in ("queued", "running", "scheduled_retry") for r in mine):
+                continue
+            last = max(mine, key=lambda r: r.get("createdAt", ""), default=None)
+            since = _epoch((last or {}).get("finishedAt") or (last or {}).get("createdAt") or full.get("updatedAt"))
+            if since is None or now - since < REVIEW_STALL:
+                continue
+            key = f"restart-review:{i['id']}:{int(since)}"
+            if self.handled(key):
+                continue
+            stages = policy.get("stages") or []
+            idx = next((n for n, s in enumerate(stages) if any(p.get("agentId") == who for p in s.get("participants") or [])), None)
+            if idx is None:
+                continue
+            reviewers = {p.get("agentId") for s in stages for p in s.get("participants") or []}
+            alt = other.get(who)
+            reviewer = alt if (who in capped and alt and alt not in capped and alt not in reviewers
+                               and alt != i.get("assigneeAgentId") and agents.get(alt, {}).get("status") != "paused") else who
+            def with_reviewer(agent):
+                p = json.loads(json.dumps(policy))
+                p["stages"][idx]["participants"] = [{"type": "agent", "agentId": agent}]
+                return p
+            name = agents.get(reviewer, {}).get("name", reviewer)
+            if reviewer != who:
+                self.act(f"review of {i.get('identifier')} to {name}", self.pc.patch_issue, i["id"],
+                         executionPolicy=with_reviewer(reviewer))
+            elif i["status"] == "blocked" and alt:  # a participant change is what restores a stage Paperclip gave up on
+                self.act(f"restore review stage on {i.get('identifier')}", self.pc.patch_issue, i["id"],
+                         executionPolicy=with_reviewer(alt))
+                self.act(f"restore review stage on {i.get('identifier')}", self.pc.patch_issue, i["id"],
+                         executionPolicy=with_reviewer(who))
+            self.act("comment", self.pc.comment, i["id"],
+                     f"[Clerk] This review never got a reviewer run, so {name} is asked to review it now.")
+            self.act(f"wake {name}", self.pc.wake_agent, reviewer, True, f"Review {i.get('identifier')}", i["id"])
+            self.mark(key)
+            self.log("restart_review", task=i.get("identifier"), reviewer=name, was=agents.get(who, {}).get("name"))
 
     def unblock_capped(self, issues, by_id):
         """Move an issue back to todo when Paperclip blocked it only because usage caps refused its runs, once the
@@ -518,6 +597,10 @@ class Clerk:
                    for w in self.pc.work_products(i["id"]) or [] if w.get("type") == "pull_request"):
                 linked.append(i)
         work = [i for i in linked if not re.match(r"\s*review pr #", i.get("title") or "", re.I)]
+        for i in work:  # 2026-10-12: #86 was pinged after its first of two review stages approved
+            full = self.pc.get_issue(i["id"])
+            if (full.get("executionPolicy") or {}).get("stages") and not merge_gate.paperclip_review_complete(full):
+                return
         what = phone.plain(work[0]["title"]) if work else phone.plain(pr.get("title") or "")
         ids = {i["id"] for i in linked}
         blocked = [phone.plain(i["title"]) for i in issues if i.get("status") not in ("done", "cancelled")
