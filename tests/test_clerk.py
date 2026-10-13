@@ -610,6 +610,62 @@ class UnblockCapped(unittest.TestCase):
         self.assertEqual(len(self.fp.patches), 1)
 
 
+class StuckToDirector(unittest.TestCase):
+    """2026-10-13: refurb part 2 (AGE-63) sat blocked from 2026-10-11 after Paperclip's own repair ran out, with
+    nothing open blocking it, and nobody was asked to decide."""
+
+    tearDown = ClerkTests.tearDown
+    T = 1_791_890_000  # 2026-10-13T09:13:20Z
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "b", "name": "Codex-Builder", "status": "idle"},
+                          {"id": "p", "name": "Principal", "status": "paused"},
+                          {"id": "dir", "name": "Director", "status": "idle"}]
+
+    def iso(self, hours_ago):
+        import datetime
+        return datetime.datetime.fromtimestamp(self.T - hours_ago * 3600, datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z")
+
+    def blocked(self, iid, assignee="b", hours_ago=30, note="Paperclip exhausted the bounded original-owner repair", **kw):
+        self.fp.add(id=iid, identifier=iid.upper(), title=iid, status="blocked", assigneeAgentId=assignee,
+                    updatedAt=self.iso(hours_ago), **kw)
+        self.fp.comments.append((iid, note))
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T, director_id="dir")
+        issues = list(self.fp.issues.values())
+        c.stuck_to_director(issues, dict(self.fp.issues))
+        return c.needs_director
+
+    def test_a_long_stuck_task_goes_to_the_director(self):
+        self.blocked("w1")
+        need = self.tick()
+        self.assertEqual(len(need), 1)
+        self.assertIn("W1 (w1), Codex-Builder", need[0])
+        self.assertIn("Paperclip exhausted", need[0])
+        self.assertEqual(self.fp.patches, [])  # the Clerk decides nothing itself
+
+    def test_the_same_list_twice_reads_the_same_so_the_director_is_woken_once(self):
+        self.blocked("w1")
+        self.assertEqual(self.tick(), self.tick())
+
+    def test_left_alone(self):
+        self.blocked("recent", hours_ago=2)
+        self.blocked("directors", assignee="dir")
+        self.blocked("paused", assignee="p")
+        self.blocked("persons", assignee=None)
+        self.blocked("open_blocker", blockedBy=[{"id": "x", "status": "in_progress"}])
+        self.blocked("capped")
+        self.blocked("review", executionState={"status": "pending", "currentParticipant": {"agentId": "p"}})
+        self.blocked("card")
+        self.fp.interactions_["card"] = [{"id": "c1", "status": "pending", "resolverPolicy": "human_only"}]
+        self.fp.runs_ = [{"id": "r1", "agentId": "b", "status": "failed", "createdAt": self.iso(1),
+                          "error": "studio-quota: codex cap reached; not starting", "contextSnapshot": {"issueId": "capped"}}]
+        self.assertEqual(self.tick(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

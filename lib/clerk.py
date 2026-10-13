@@ -24,6 +24,7 @@ CODEX_RESET = re.compile(r"^([A-Z][a-z]{2}) (\d{1,2}) (\d{2}):(\d{2}) UTC$")
 STRANDED = "retry budget is spent"
 STRANDED_REVIEW = "pending execution-review participant"  # Paperclip's comment when it blocks a review that never ran
 REVIEW_STALL = 30 * 60  # seconds without a reviewer run before the Clerk steps in  # Paperclip's comment when it blocks an issue whose runs never started
+STUCK_AFTER = 6 * 3600  # seconds a blocked task may sit untouched, with nothing open blocking it, before the Director hears
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
 RECEIPT_DAYS = 60
@@ -122,7 +123,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.restart_reviews, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
+                     self.restart_reviews, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -511,6 +512,49 @@ class Clerk:
             self.act(f"wake {name}", self.pc.wake_agent, reviewer, True, f"Review {i.get('identifier')}", i["id"])
             self.mark(key)
             self.log("restart_review", task=i.get("identifier"), reviewer=name, was=agents.get(who, {}).get("name"))
+
+    def stuck_to_director(self, issues, by_id):
+        """Put a blocked task on the Director's digest when it has sat untouched for STUCK_AFTER with nothing open
+        blocking it. Paperclip blocks a task when its retries or its own repair run out and then waits for
+        someone; refurb part 2 (AGE-63) sat so from 2026-10-11 while its PR waited for a review nobody asked for.
+        Left out: tasks the other steps restart (a cap refusal, a stranded review), tasks waiting on a card only
+        Benjamin can answer, the Director's own tasks, people's tasks and paused agents' tasks. The digest wakes
+        the Director only when this list changes."""
+        agents = {a["id"]: a for a in self.pc.list_agents(self.cid)}
+        latest = {}
+        for r in self.pc.runs(self.cid, limit=200):
+            iid = (r.get("contextSnapshot") or {}).get("issueId")
+            if iid and not self.dead_retry(r) and r.get("createdAt", "") > latest.get(iid, {}).get("createdAt", ""):
+                latest[iid] = r
+        now = self.now()
+        for i in issues:
+            who = i.get("assigneeAgentId")
+            if i.get("status") != "blocked" or not who or who == self.director \
+                    or agents.get(who, {}).get("name") == "Director" or agents.get(who, {}).get("status") == "paused":
+                continue
+            since = _epoch(i.get("updatedAt"))
+            if since is None or now - since < STUCK_AFTER:
+                continue
+            if any((b.get("status") or by_id.get(b.get("id"), {}).get("status")) not in ("done", "cancelled")
+                   for b in i.get("blockedBy") or []):
+                continue
+            r = latest.get(i["id"]) or {}
+            if r.get("status") in ("queued", "running", "scheduled_retry") or \
+                    (r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")):
+                continue  # running, or unblock_capped restarts it after the window resets
+            state = self.pc.get_issue(i["id"]).get("executionState") or {}
+            if state.get("status") == "pending" and (state.get("currentParticipant") or {}).get("agentId"):
+                continue  # restart_reviews looks after an agent's review stage
+            if any(phone.human_card(c) for c in self.pc.interactions(i["id"]) or []):
+                continue  # waiting on Benjamin, who has been told
+            note = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
+            why = (note[0].get("body") or "").strip().split("\n")[0][:160] if note else "no comment"
+            day = time.strftime("%d %b %H:%M", time.localtime(since))
+            self.needs_director.append(
+                f"{i.get('identifier', i['id'])} ({i.get('title', '')}), {agents.get(who, {}).get('name', who)}: "
+                f"blocked and untouched since {day}, with nothing open blocking it. Last note: \"{why}\". "
+                f"Unblock it, reassign it or cancel it.")
+            self.log("stuck_to_director", task=i.get("identifier", i["id"]))
 
     def unblock_capped(self, issues, by_id):
         """Move an issue back to todo when Paperclip blocked it only because usage caps refused its runs, once the
