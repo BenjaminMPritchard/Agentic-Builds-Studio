@@ -458,8 +458,11 @@ class Clerk:
         for r in runs:
             if r.get("createdAt", "") > latest.get(r["agentId"], {}).get("createdAt", ""):
                 latest[r["agentId"]] = r
-        capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")}
         now = self.now()
+        # 2026-10-13: a refusal whose window has since reset no longer means capped; counting it kept AGE-81's
+        # review on the capped Principal while Codex had its whole window free
+        capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")
+                  and (_cap_reset(r.get("error") or "", now) or float("inf")) > now}
         for i in issues:
             if i.get("status") not in ("in_review", "blocked"):
                 continue

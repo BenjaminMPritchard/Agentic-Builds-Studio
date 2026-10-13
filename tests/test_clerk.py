@@ -717,6 +717,14 @@ class RestartReviews(unittest.TestCase):
         self.assertEqual(self.reviewers("r1"), ["cx"])
         self.assertEqual(self.woken, [("cx", "r1")])
 
+    def test_the_other_principal_counts_as_free_once_its_refusal_window_has_reset(self):
+        self.review("r1")  # 2026-10-13: AGE-81's review stayed on the capped Principal while Codex was free
+        old = {**self.a_run("x2", "cx", "other", 50),
+               "error": "studio-quota: codex cap reached; not starting: studio 5-hour: used 32 (resets Oct 12 19:00 UTC)"}
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60), old]
+        self.tick()
+        self.assertEqual(self.reviewers("r1"), ["cx"])
+
     def test_an_uncapped_reviewer_is_woken_again(self):
         self.review("r1")
         self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
