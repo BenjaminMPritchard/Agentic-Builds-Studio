@@ -13,7 +13,9 @@ from lib.quota import QuotaError
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 with open(os.path.join(ROOT, "policy", "quota.json")) as _f:
     POLICY = json.load(_f)["claude"]
-POLICY = {**POLICY, "five_hour_cap": 12}  # the controller scenarios below are worked for a 12-point cap
+RESERVE = POLICY["reserve"]
+DIRECTOR = RESERVE["agents"][0]
+POLICY = {**POLICY, "five_hour_cap": 12, "reserve": {}}  # the controller scenarios below are worked for a 12-point cap
 
 USAGE = """You are currently using your subscription to power your Claude Code usage
 
@@ -182,6 +184,28 @@ class Controller(unittest.TestCase):
         new = reading(2, 10.5, sk="Sep 29, 11:50am (Europe/London)")
         quota.release(self.l, tok, new, self.t)
         self.assertEqual(quota.status(self.l, new, POLICY)["studio"], {"five_hour": 2.0, "week": 0.5})
+
+    def test_the_reserve_keeps_five_hour_points_for_the_director(self):
+        # Benjamin, 2026-10-14: one Builder run took 17 of 22 points and the Director could not run.
+        policy = {**POLICY, "five_hour_cap": 22, "reserve": RESERVE}
+        self.l["samples"][DIRECTOR] = [[9.0, 1.0]] * 3  # its largest run counts for at most the reserve
+        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 16.0
+        self.t += 60
+        tok, why = quota.admit(self.l, reading(16, 10), "rec", 1, policy, self.t, pid_alive=alive)
+        self.assertIsNone(tok)  # 16 + 3 + 1 > 22 - 4
+        self.assertIn("> 18", why[0])
+        tok, why = quota.admit(self.l, reading(16, 10), DIRECTOR, 2, policy, self.t, pid_alive=alive)
+        self.assertTrue(tok, why)  # 16 + 4 + 1 <= 22
+        self.assertEqual(self.l["active"][tok]["reserve"]["five_hour"], 4.0)
+
+    def test_only_other_agents_are_asked_to_stop_at_the_reserve(self):
+        policy = {**POLICY, "five_hour_cap": 22, "reserve": RESERVE}
+        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 19.0
+        r = reading(19, 10)
+        self.assertIn("19 of the 18-point cap (22, less 4 kept for the Director)",
+                      quota.over_cap(self.l, r, policy, self.t, agent="rec")[0])
+        self.assertEqual(quota.over_cap(self.l, r, policy, self.t, agent=DIRECTOR), [])
+        self.assertTrue(quota.over_cap(self.l, r, policy, self.t, headroom=3, agent=DIRECTOR))
 
     def test_the_weekly_caps(self):
         self.assertTrue(self.fresh(79, 79)[0])  # 79 + 0.5 + 0.5 = 80: at the studio cap, allowed
@@ -370,7 +394,7 @@ class Cli(unittest.TestCase):
         rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
                                 "--after-pid", str(run.pid), token], env=env, stderr=subprocess.PIPE, text=True)
         self.assertEqual(run.wait(timeout=10), -15)  # SIGTERM
-        self.assertIn("of the 22-point cap", rel.communicate(timeout=10)[1])
+        self.assertIn("of the 18-point cap (22, less 4 kept for the Director)", rel.communicate(timeout=10)[1])
         stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
         self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
 
@@ -400,7 +424,7 @@ class Cli(unittest.TestCase):
         deadline = time.time() + 5
         while not os.path.exists(self.flag) and time.time() < deadline:
             time.sleep(0.05)
-        self.assertIn("21 of the 22-point cap", open(self.flag).read())
+        self.assertIn("21 of the 18-point cap", open(self.flag).read())
         self.assertIsNone(run.poll())  # asked, not stopped
         self.assertEqual(run.wait(timeout=10), 0)  # it ended by itself
         rel.communicate(timeout=10)

@@ -8,7 +8,9 @@
     "default_job": {"five_hour": 3, "week": 0.5},
     "min_job": {"five_hour": 1, "week": 0.2},
     "estimate_samples": 3,
-    "max_run_hours": 6
+    "max_run_hours": 6,
+    "reserve": {"_comment": "Benjamin, 2026-10-14: the Director must always be able to run. Other agents work to five_hour_cap minus this; the agents are Paperclip agent ids (8ec720d9: Director).",
+                "five_hour": 4, "agents": ["8ec720d9-e212-419a-a3a6-80dacf2070ff"]}
   },
   "codex": {
     "five_hour_cap": 60,

@@ -108,7 +108,8 @@ def check_running(a, path, asked):
         return asked, False  # no reading: keep going; admission and release still read
     headroom = policy.get("wrap_up_points", quota.WRAP_UP_POINTS) if a.wrap_up else 0
     with quota.Ledger(path) as ledger:
-        reasons = quota.over_cap(ledger, r, policy, quota.now(), headroom)
+        agent = (ledger["active"].get(a.token) or {}).get("agent")
+        reasons = quota.over_cap(ledger, r, policy, quota.now(), headroom, agent)
     now = quota.now()
     if asked is None and a.wrap_up:
         if not reasons:

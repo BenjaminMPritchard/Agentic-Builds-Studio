@@ -29,11 +29,11 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 | Summaries, exact quotes, classification, dedupe, inbox triage | Worker (local Qwen, `qwen-job`) | Scout / Codex-Scout | the job's own checks |
 | Exhaustive research, repo inventory, "find every place" | Scout (Haiku) / Codex-Scout (Luna) | Builder | evidence packet with coverage |
 | Plans, trade-offs, acceptance criteria | Director | Principal / Codex-Principal | explicit trade-offs; B needs Benjamin |
-| Routine change to an established pattern | Builder-1/2 (Sonnet) / Codex-Builder (Sol) | Principal | targeted tests, `make check`, allowed paths |
-| Multi-file feature or integration | Builder-1/2 / Codex-Builder; Principal reviews | Principal / Codex-Principal | new tests, `make check`, review |
+| Routine change to an established pattern | Codex-Builder (Sol) first; Builder-1/2 (Sonnet) | Principal | targeted tests, `make check`, allowed paths |
+| Multi-file feature or integration | Codex-Builder first; Builder-1/2; Principal reviews | Principal / Codex-Principal | new tests, `make check`, review |
 | UI and visual work | Builder-1/2; Principal reviews | Codex-Builder | screenshots phone + desktop, axe |
 | Difficult debugging, migrations, incidents | Principal (Opus) / Codex-Principal (Astra) | Director | reproduced cause + failing test first |
-| Auth, payments, permissions, refunds, data loss | Principal plans small steps and reviews each; Builders implement | Codex-Principal | risk tests + review by a *different* agent |
+| Auth, payments, permissions, refunds, data loss | Principal plans small steps and reviews each; Codex-Builder implements first, then Builders | Codex-Principal | risk tests + review by a *different* agent |
 | Client replies | Liaison | Director, then Board | verified facts; human-confirmed send |
 | Journals, metrics, lessons | Recorder | Worker | sources cited |
 | Studio architecture review after a production phase | Architect (rare; skill `architect-review`) | — | one PR of proposals under `upgrades/` |
@@ -42,8 +42,10 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 **Only route to active agents.** Codex-Principal is `planned` in `policy/routing.json`: at about 5 points a
 minute, a 28-point Codex window holds only about 6 minutes of it, so it reviews (the Clerk assigns it to the
 Principal's own work) but is not routed to directly yet. Codex-Builder and Codex-Scout are active.
-Benjamin, 2026-10-02: the Codex allowance is under-used. When a Builder task can go to either provider, give
-Codex-Builder its share, and always when Claude's window is short of room.
+Benjamin, 2026-10-14: **Codex builds first.** Claude's allowance is the bottleneck and Codex's is mostly
+unused, so building work (routine changes, multi-file features, the build steps of high-risk work) goes to
+Codex-Builder first. Builder-1/2 take UI and visual work, and building only when Codex is capped or
+Codex-Builder handed the task back. Principals keep planning and review.
 
 ## Size every run to fit the window
 
