@@ -26,7 +26,7 @@ STRANDED_REVIEW = "pending execution-review participant"  # Paperclip's comment 
 REVIEW_STALL = 30 * 60  # seconds without a reviewer run before the Clerk steps in  # Paperclip's comment when it blocks an issue whose runs never started
 # Paperclip hands a review to a person after this many agent change-request rounds (default 3). Benjamin,
 # 2026-10-14: reviews never wait on him; after SETTLE_ROUNDS the Director settles the dispute instead.
-REVIEW_ROUNDS_MAX = 99
+REVIEW_ROUNDS_MAX = 50  # Paperclip's own maximum (2026-10-14: 99 was refused, "expected number to be <=50")
 SETTLE_ROUNDS = 2
 STUCK_AFTER = 6 * 3600  # seconds a blocked task may sit untouched, with nothing open blocking it, before the Director hears
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
