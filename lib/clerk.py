@@ -24,6 +24,10 @@ CODEX_RESET = re.compile(r"^([A-Z][a-z]{2}) (\d{1,2}) (\d{2}):(\d{2}) UTC$")
 STRANDED = "retry budget is spent"
 STRANDED_REVIEW = "pending execution-review participant"  # Paperclip's comment when it blocks a review that never ran
 REVIEW_STALL = 30 * 60  # seconds without a reviewer run before the Clerk steps in  # Paperclip's comment when it blocks an issue whose runs never started
+# Paperclip hands a review to a person after this many agent change-request rounds (default 3). Benjamin,
+# 2026-10-14: reviews never wait on him; after SETTLE_ROUNDS the Director settles the dispute instead.
+REVIEW_ROUNDS_MAX = 99
+SETTLE_ROUNDS = 2
 STUCK_AFTER = 6 * 3600  # seconds a blocked task may sit untouched, with nothing open blocking it, before the Director hears
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
@@ -123,7 +127,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.restart_reviews, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
+                     self.restart_reviews, self.reviews_stay_with_agents, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -398,7 +402,7 @@ class Clerk:
                 continue
             stage = {"type": "review", "participants": [{"type": "agent", "agentId": reviewer}], "approvalsNeeded": 1}
             if self.once(f"review-stage:{i['id']}", f"review stage on {i.get('identifier')}", self.pc.patch_issue,
-                         i["id"], executionPolicy={"mode": "normal", "stages": [stage]}):
+                         i["id"], executionPolicy={"mode": "normal", "stages": [stage], "maxReviewRounds": REVIEW_ROUNDS_MAX}):
                 self.log("review_stage", task=i.get("identifier"), reviewer=agents[reviewer])
 
     def claude_week_out(self, agent_id):
@@ -500,6 +504,7 @@ class Clerk:
             def with_reviewer(agent):
                 p = json.loads(json.dumps(policy))
                 p["stages"][idx]["participants"] = [{"type": "agent", "agentId": agent}]
+                p["maxReviewRounds"] = REVIEW_ROUNDS_MAX
                 return p
             name = agents.get(reviewer, {}).get("name", reviewer)
             if reviewer != who:
@@ -515,6 +520,37 @@ class Clerk:
             self.act(f"wake {name}", self.pc.wake_agent, reviewer, True, f"Review {i.get('identifier')}", i["id"])
             self.mark(key)
             self.log("restart_review", task=i.get("identifier"), reviewer=name, was=agents.get(who, {}).get("name"))
+
+    def reviews_stay_with_agents(self, issues, by_id):
+        """Keep agent reviews away from Benjamin. Paperclip hands a review stage to the task's responsible person after
+        three change-request rounds between agents, and only that person can then move it (AGE-60, 2026-10-13, needed
+        a browser-console request). So every review policy gets maxReviewRounds REVIEW_ROUNDS_MAX, and a review that
+        has bounced SETTLE_ROUNDS times or more goes on the Director's digest to settle. A stage already held by a
+        person is left alone; B plans' approval stages are not review stages and are untouched."""
+        agents = {a["id"]: a.get("name", a["id"]) for a in self.pc.list_agents(self.cid)}
+        for i in issues:
+            if i.get("status") not in ("todo", "in_progress", "in_review", "blocked"):
+                continue
+            full = self.pc.get_issue(i["id"])  # the issue list leaves out the review state
+            policy, state = full.get("executionPolicy") or {}, full.get("executionState") or {}
+            stages = policy.get("stages") or []
+            if not any(st.get("type") == "review" for st in stages):
+                continue
+            held = (state.get("currentParticipant") or {}).get("type") == "user"
+            if policy.get("maxReviewRounds") != REVIEW_ROUNDS_MAX and not held:
+                fixed = {**json.loads(json.dumps(policy)), "maxReviewRounds": REVIEW_ROUNDS_MAX}
+                self.once(f"review-rounds:{i['id']}", f"review rounds on {i.get('identifier')}", self.pc.patch_issue,
+                          i["id"], executionPolicy=fixed)
+            rounds = state.get("changesRequestedCount") or 0
+            if rounds >= SETTLE_ROUNDS and not held and state.get("currentStageType") == "review":
+                builder = agents.get((state.get("returnAssignee") or {}).get("agentId"), "the builder")
+                reviewer = ", ".join(agents.get(p.get("agentId"), "?") for st in stages if st.get("type") == "review"
+                                     for p in st.get("participants") or [])
+                self.needs_director.append(
+                    f"{i.get('identifier', i['id'])} ({i.get('title', '')}): the review has bounced {rounds} times "
+                    f"between {builder} and {reviewer}. Settle it: read the last review, decide what is still needed "
+                    f"for \"Done when\", and say so on the task.")
+                self.log("review_to_director", task=i.get("identifier", i["id"]), rounds=rounds)
 
     def stuck_to_director(self, issues, by_id):
         """Put a blocked task on the Director's digest when it has sat untouched for STUCK_AFTER with nothing open

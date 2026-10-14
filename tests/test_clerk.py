@@ -786,3 +786,54 @@ class ResumeThroughDeadRetries(unittest.TestCase):
         self.fp.runs_ = [self.a_run("f1", "prin", "t", 30), self.retry(due_minutes_ago=-5)]
         Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T).resume_capped([], {})
         self.assertEqual(self.woken, [])
+
+
+class ReviewsStayWithAgents(unittest.TestCase):
+    """2026-10-13: after three change-request rounds Paperclip handed AGE-60's review to Benjamin, and only a
+    browser-console request could move it. Benjamin, 2026-10-14: reviews never wait on him."""
+
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "b", "name": "Codex-Builder"}, {"id": "cp", "name": "Codex-Principal"},
+                          {"id": "dir", "name": "Director"}]
+        self.review = {"mode": "normal", "stages": [{"id": "s1", "type": "review",
+                                                     "participants": [{"type": "agent", "agentId": "cp"}]}]}
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir")
+        c.reviews_stay_with_agents(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+        return c.needs_director
+
+    def test_every_review_policy_gets_the_high_round_limit_once_and_keeps_its_stages(self):
+        self.fp.add(id="t1", identifier="AGE-75", title="x", status="in_review", executionPolicy=self.review)
+        self.tick(); self.tick()
+        self.assertEqual(len(self.fp.patches), 1)
+        sent = self.fp.patches[0][1]["executionPolicy"]
+        self.assertEqual(sent["maxReviewRounds"], clerk_mod.REVIEW_ROUNDS_MAX)
+        self.assertEqual(sent["stages"], self.review["stages"])  # same stage ids, so the review state carries on
+
+    def test_a_review_that_bounced_twice_goes_to_the_director(self):
+        self.fp.add(id="t1", identifier="AGE-52", title="countdown", status="in_progress",
+                    executionPolicy={**self.review, "maxReviewRounds": clerk_mod.REVIEW_ROUNDS_MAX},
+                    executionState={"status": "changes_requested", "currentStageType": "review", "changesRequestedCount": 2,
+                                    "returnAssignee": {"type": "agent", "agentId": "b"}})
+        need = self.tick()
+        self.assertEqual(len(need), 1)
+        self.assertIn("AGE-52 (countdown): the review has bounced 2 times between Codex-Builder and Codex-Principal", need[0])
+        self.assertEqual(self.fp.patches, [])
+
+    def test_left_alone(self):
+        self.fp.add(id="held", title="x", status="in_review", executionPolicy=self.review,
+                    executionState={"status": "pending", "currentStageType": "review", "changesRequestedCount": 3,
+                                    "currentParticipant": {"type": "user", "userId": "ben"}})
+        self.fp.add(id="plan", title="x", status="in_review",
+                    executionPolicy={"mode": "normal", "stages": [{"id": "a", "type": "approval", "participants": []}]})
+        self.fp.add(id="done", title="x", status="done", executionPolicy=self.review)
+        self.fp.add(id="once", title="x", status="in_progress",
+                    executionPolicy={**self.review, "maxReviewRounds": clerk_mod.REVIEW_ROUNDS_MAX},
+                    executionState={"currentStageType": "review", "changesRequestedCount": 1})
+        self.assertEqual(self.tick(), [])
+        self.assertEqual(self.fp.patches, [])
