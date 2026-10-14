@@ -11,6 +11,8 @@ Before a run starts, its estimated cost is reserved and every check must pass:
   studio weekly used + reserved + this job + margin <= weekly_cap      (80 Claude, 100 Codex)
   account 5-hour used + reserved + this job + margin <= 100
   account weekly used + reserved + this job + margin + personal allowance still unused <= 100
+The policy's `reserve` keeps some five-hour points back for the agents it names (the Director): every other agent
+works to five_hour_cap minus the reserve, and a named agent's own estimate counts for at most the reserve.
 No reading means no admission. Estimates start from policy and move to the largest recent measured run
 for that agent. While a run is active its watcher also reads usage every few minutes (over_cap) and stops the
 run once studio use reaches a cap: admission alone let one Codex run take a whole five-hour window. These are
@@ -172,12 +174,31 @@ WRAP_UP_POINTS = 2  # a run is asked to wrap up this close to a cap, so its wrap
 WRAP_UP_MINUTES = 10  # and is stopped only if it is still going this long after being asked
 
 
-def over_cap(ledger, reading, policy, now, headroom=0):
-    """Take a reading during a run; the reasons studio use is within `headroom` of a cap (empty while not)."""
+def held_back(policy, agent):
+    """Five-hour points this agent may not use: the reserve, unless the reserve is for this agent. Benjamin,
+    2026-10-14: the Director must always be able to run; Builder runs of 17 points used to leave it nothing."""
+    r = policy.get("reserve") or {}
+    return 0.0 if agent in r.get("agents", ()) else float(r.get("five_hour", 0))
+
+
+def _cap_text(policy, agent, w):
+    back = held_back(policy, agent) if w == "five_hour" else 0.0
+    cap = {"five_hour": policy["five_hour_cap"], "week": policy["weekly_cap"]}[w]
+    return cap - back, (f"{cap - back:g}-point cap ({cap:g}, less {back:g} kept for the Director)" if back
+                        else f"{cap:g}-point cap")
+
+
+def over_cap(ledger, reading, policy, now, headroom=0, agent=None):
+    """Take a reading during a run; the reasons studio use is within `headroom` of a cap (empty while not). The
+    cap is the agent's own: less the reserve unless the reserve is for it."""
     observe(ledger, reading, now)
     s = status(ledger, reading, policy)
-    return [f"studio {label} use {s['studio'][w]:g} of the {s['caps'][w]:g}-point cap (resets {s['resets'][w] or 'unknown'})"
-            for w, label in (("five_hour", "5-hour"), ("week", "weekly")) if s["studio"][w] >= s["caps"][w] - headroom]
+    out = []
+    for w, label in (("five_hour", "5-hour"), ("week", "weekly")):
+        cap, text = _cap_text(policy, agent, w)
+        if s["studio"][w] >= cap - headroom:
+            out.append(f"studio {label} use {s['studio'][w]:g} of the {text} (resets {s['resets'][w] or 'unknown'})")
+    return out
 
 
 def account_nearly_out(reading, policy):
@@ -270,6 +291,10 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
     observe(ledger, reading, now)
     _drop_ended(ledger, now)
     job = estimate(ledger, agent, policy)
+    r = policy.get("reserve") or {}
+    if agent in r.get("agents", ()):
+        # a reserved agent's own estimate counts for at most the reserve, so the reserve always admits it
+        job = {**job, "five_hour": min(job["five_hour"], max(policy["min_job"]["five_hour"], float(r.get("five_hour", 0))))}
     s = status(ledger, reading, policy)
     m = policy["margin"]
     reasons = []
@@ -281,7 +306,7 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
                            f"{m[w]:g}{f' + personal {extra:g}' if extra else ''} = {total:g} > {limit:g} "
                            f"(resets {reading[w]['key'] or 'unknown'})")
 
-    need("studio 5-hour", s["studio"]["five_hour"], "five_hour", policy["five_hour_cap"])
+    need("studio 5-hour", s["studio"]["five_hour"], "five_hour", policy["five_hour_cap"] - held_back(policy, agent))
     need("studio weekly", s["studio"]["week"], "week", policy["weekly_cap"])
     need("account 5-hour", s["account"]["five_hour"], "five_hour", 100)
     personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
