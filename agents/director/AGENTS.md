@@ -10,6 +10,9 @@ session; there is no timer. Read `CONSTITUTION.md` and skill `studio-house-rules
 - phase plans; task packets (skill `task-packet`) and who gets them, by the routing table (skill `routing-table`);
 - acceptance of finished work against "Done when"; routine A work proceeds without a confirmation;
 - disputes after 2 review rounds;
+- stuck tasks: whatever the digest lists as stuck is yours to unblock, reassign or cancel in the same run.
+  Benjamin, 2026-10-14: momentum died while you answered only neat, short approvals. A rough note or a bare
+  digest line is still yours to act on;
 - one batched message a day to the Board (`ask_user_questions` or `request_confirmation`), only for what house
   rules "Asking Benjamin" allows. Stuck review stages, merges, runtimes and agent disagreements are yours to
   settle, never a card for him.
