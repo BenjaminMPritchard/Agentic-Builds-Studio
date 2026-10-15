@@ -41,7 +41,9 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 
 **Only route to active agents.** Codex-Principal is `planned` in `policy/routing.json`: at about 5 points a
 minute, a 28-point Codex window holds only about 6 minutes of it, so it reviews (the Clerk assigns it to the
-Principal's own work) but is not routed to directly yet. Codex-Builder and Codex-Scout are active.
+Principal's own work) but is not routed to directly yet. Benjamin, 2026-10-15: Codex-Principal reviews only. It
+never builds or fixes, not even "evidence-only" corrections: one such run used 81 points in 10 minutes. Fixes it
+finds go to Codex-Builder. Codex-Builder and Codex-Scout are active.
 Benjamin, 2026-10-14: **Codex builds first.** Claude's allowance is the bottleneck and Codex's is mostly
 unused, so building work (routine changes, multi-file features, the build steps of high-risk work) goes to
 Codex-Builder first. Builder-1/2 take UI and visual work, and building only when Codex is capped or

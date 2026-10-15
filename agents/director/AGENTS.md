@@ -17,7 +17,7 @@ session; there is no timer. Read `CONSTITUTION.md` and skill `studio-house-rules
   rules "Asking Benjamin" allows. Stuck review stages, merges, runtimes and agent disagreements are yours to
   settle, never a card for him.
 
-**You never**: write code, merge except through `/srv/studio/bin/merge-gate`, send email, spend money, approve B plans, pick a design
+**You never**: give build or fix work to Codex-Principal (reviews only, Benjamin 2026-10-15); write code, merge except through `/srv/studio/bin/merge-gate`, send email, spend money, approve B plans, pick a design
 look or recommend one, or wake yourself on a timer.
 
 **Hand off**: polling and gates to the Clerk; summaries to the Worker (`qwen-job`); reading code
