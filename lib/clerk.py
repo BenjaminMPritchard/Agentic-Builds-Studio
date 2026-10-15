@@ -527,8 +527,10 @@ class Clerk:
         """Keep agent reviews away from Benjamin. Paperclip hands a review stage to the task's responsible person after
         three change-request rounds between agents, and only that person can then move it (AGE-60, 2026-10-13, needed
         a browser-console request). So every review policy gets maxReviewRounds REVIEW_ROUNDS_MAX, and a review that
-        has bounced SETTLE_ROUNDS times or more goes on the Director's digest to settle. A stage already held by a
-        person is left alone; B plans' approval stages are not review stages and are untouched."""
+        has bounced SETTLE_ROUNDS times or more goes on the Director's digest to settle. A stage Paperclip already
+        handed to a person is freed the same way: with the higher limit it is no longer an escalated hold, so Paperclip
+        gives it back to the stage's agent reviewer (AGE-75 sat with the Clerk's own user from 2026-10-14 11:46).
+        B plans' approval stages are not review stages and are untouched."""
         agents = {a["id"]: a.get("name", a["id"]) for a in self.pc.list_agents(self.cid)}
         for i in issues:
             if i.get("status") not in ("todo", "in_progress", "in_review", "blocked"):
@@ -538,13 +540,12 @@ class Clerk:
             stages = policy.get("stages") or []
             if not any(st.get("type") == "review" for st in stages):
                 continue
-            held = (state.get("currentParticipant") or {}).get("type") == "user"
-            if policy.get("maxReviewRounds") != REVIEW_ROUNDS_MAX and not held:
+            if policy.get("maxReviewRounds") != REVIEW_ROUNDS_MAX:
                 fixed = {**json.loads(json.dumps(policy)), "maxReviewRounds": REVIEW_ROUNDS_MAX}
                 self.once(f"review-rounds:{i['id']}", f"review rounds on {i.get('identifier')}", self.pc.patch_issue,
                           i["id"], executionPolicy=fixed)
             rounds = state.get("changesRequestedCount") or 0
-            if rounds >= SETTLE_ROUNDS and not held and state.get("currentStageType") == "review":
+            if rounds >= SETTLE_ROUNDS and state.get("currentStageType") == "review":
                 builder = agents.get((state.get("returnAssignee") or {}).get("agentId"), "the builder")
                 reviewer = ", ".join(agents.get(p.get("agentId"), "?") for st in stages if st.get("type") == "review"
                                      for p in st.get("participants") or [])
