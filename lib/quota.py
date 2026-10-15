@@ -12,7 +12,8 @@ Before a run starts, its estimated cost is reserved and every check must pass:
   account 5-hour used + reserved + this job + margin <= 100
   account weekly used + reserved + this job + margin + personal allowance still unused <= 100
 The policy's `reserve` keeps some five-hour points back for the agents it names (the Director): every other agent
-works to five_hour_cap minus the reserve, and a named agent's own estimate counts for at most the reserve.
+works to five_hour_cap minus the reserve, and a named agent's own estimate counts for at most the reserve less
+the margin.
 No reading means no admission. Estimates start from policy and move to the largest recent measured run
 for that agent. While a run is active its watcher also reads usage every few minutes (over_cap) and stops the
 run once studio use reaches a cap: admission alone let one Codex run take a whole five-hour window. These are
@@ -293,8 +294,11 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
     job = estimate(ledger, agent, policy)
     r = policy.get("reserve") or {}
     if agent in r.get("agents", ()):
-        # a reserved agent's own estimate counts for at most the reserve, so the reserve always admits it
-        job = {**job, "five_hour": min(job["five_hour"], max(policy["min_job"]["five_hour"], float(r.get("five_hour", 0))))}
+        # a reserved agent's own estimate counts for at most the reserve less the margin, so the reserve always
+        # admits it: 2026-10-15 the others stopped at 18 of 22 as meant, and the Director (18 + 4 + margin 1 = 23)
+        # was refused all morning
+        room = float(r.get("five_hour", 0)) - policy["margin"]["five_hour"]
+        job = {**job, "five_hour": min(job["five_hour"], max(policy["min_job"]["five_hour"], room))}
     s = status(ledger, reading, policy)
     m = policy["margin"]
     reasons = []

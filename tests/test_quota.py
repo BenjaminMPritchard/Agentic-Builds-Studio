@@ -189,14 +189,14 @@ class Controller(unittest.TestCase):
         # Benjamin, 2026-10-14: one Builder run took 17 of 22 points and the Director could not run.
         policy = {**POLICY, "five_hour_cap": 22, "reserve": RESERVE}
         self.l["samples"][DIRECTOR] = [[9.0, 1.0]] * 3  # its largest run counts for at most the reserve
-        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 16.0
+        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 18.0  # the others' limit, 2026-10-15
         self.t += 60
-        tok, why = quota.admit(self.l, reading(16, 10), "rec", 1, policy, self.t, pid_alive=alive)
-        self.assertIsNone(tok)  # 16 + 3 + 1 > 22 - 4
+        tok, why = quota.admit(self.l, reading(18, 10), "rec", 1, policy, self.t, pid_alive=alive)
+        self.assertIsNone(tok)  # 18 + 3 + 1 > 22 - 4
         self.assertIn("> 18", why[0])
-        tok, why = quota.admit(self.l, reading(16, 10), DIRECTOR, 2, policy, self.t, pid_alive=alive)
-        self.assertTrue(tok, why)  # 16 + 4 + 1 <= 22
-        self.assertEqual(self.l["active"][tok]["reserve"]["five_hour"], 4.0)
+        tok, why = quota.admit(self.l, reading(18, 10), DIRECTOR, 2, policy, self.t, pid_alive=alive)
+        self.assertTrue(tok, why)  # 18 + (4 - 1) + 1 <= 22
+        self.assertEqual(self.l["active"][tok]["reserve"]["five_hour"], 3.0)
 
     def test_only_other_agents_are_asked_to_stop_at_the_reserve(self):
         policy = {**POLICY, "five_hour_cap": 22, "reserve": RESERVE}
