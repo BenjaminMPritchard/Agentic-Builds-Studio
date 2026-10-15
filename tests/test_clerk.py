@@ -825,10 +825,17 @@ class ReviewsStayWithAgents(unittest.TestCase):
         self.assertIn("AGE-52 (countdown): the review has bounced 2 times between Codex-Builder and Codex-Principal", need[0])
         self.assertEqual(self.fp.patches, [])
 
-    def test_left_alone(self):
-        self.fp.add(id="held", title="x", status="in_review", executionPolicy=self.review,
+    def test_a_review_already_handed_to_a_person_is_freed_and_goes_to_the_director(self):
+        # AGE-75 sat with the Clerk's own user from 2026-10-14 11:46: the higher limit ends Paperclip's hold.
+        self.fp.add(id="held", identifier="AGE-75", title="x", status="in_review", executionPolicy=self.review,
                     executionState={"status": "pending", "currentStageType": "review", "changesRequestedCount": 3,
-                                    "currentParticipant": {"type": "user", "userId": "ben"}})
+                                    "currentParticipant": {"type": "user", "userId": "clerk"},
+                                    "returnAssignee": {"type": "agent", "agentId": "b"}})
+        need = self.tick()
+        self.assertEqual(self.fp.patches[0][1]["executionPolicy"]["maxReviewRounds"], clerk_mod.REVIEW_ROUNDS_MAX)
+        self.assertIn("AGE-75 (x): the review has bounced 3 times", need[0])
+
+    def test_left_alone(self):
         self.fp.add(id="plan", title="x", status="in_review",
                     executionPolicy={"mode": "normal", "stages": [{"id": "a", "type": "approval", "participants": []}]})
         self.fp.add(id="done", title="x", status="done", executionPolicy=self.review)
