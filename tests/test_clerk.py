@@ -868,3 +868,22 @@ class DirectorWakesOnInbox(unittest.TestCase):
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: t, director_id="dir")
         c.resume_capped(list(self.fp.issues.values()), {})
         self.assertEqual(self.fp.wakes[0][1]["payload"], {"issueId": "inbox"})
+
+
+class DirectorInboxNotWatched(unittest.TestCase):
+    """2026-10-15: the watchdog put the Director's own comment on its parked inbox on the digest as a new
+    "blocked" line every time, and that woke the Director again (22 wakes in 4 hours)."""
+
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "dir", "name": "Director", "status": "idle"}]
+
+    def test_a_blocked_inbox_is_not_reported(self):
+        self.fp.add(id="inbox", identifier="AGE-3", title="Director inbox", status="blocked", assigneeAgentId="dir",
+                    updatedAt="2026-10-15T12:16:00.000Z")
+        self.fp.comments.append(("inbox", "Director, digest of 13:05: no change."))
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir")
+        c.watchdog(list(self.fp.issues.values()), dict(self.fp.issues))
+        self.assertEqual(c.needs_board, [])

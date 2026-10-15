@@ -707,6 +707,10 @@ class Clerk:
         """Stuck work: retry once, then tell Benjamin in one line (lib/watchdog.py, lib/notify.py)."""
         seen = []
         for i in issues:
+            if i.get("title") == "Director inbox":
+                # 2026-10-15: each Director comment on its parked inbox became a new "blocked" line on the digest,
+                # which woke the Director again: 22 wakes in 4 hours, about 1 Claude point each, for nothing
+                continue
             key = f"blocked:{i['id']}:{i.get('updatedAt')}"
             if i.get("status") == "blocked" and not self.handled(key):
                 latest = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
