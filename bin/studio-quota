@@ -121,6 +121,8 @@ def check_running(a, path, asked):
     if asked is None and not reasons:
         return None, False
     grace = policy.get("wrap_up_minutes", quota.WRAP_UP_MINUTES) * 60
+    if agent in (policy.get("no_grace") or {}).get("agents", ()):
+        grace = 0  # stopped at the next check after being asked: Codex-Principal used 81 points in 10 minutes
     if asked is not None and now - asked < grace and not quota.account_nearly_out(r, policy):
         return asked, False
     if asked is not None:

@@ -398,11 +398,12 @@ class Cli(unittest.TestCase):
         stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
         self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
 
-    def release(self, run, token, wrap_minutes):
+    def release(self, run, token, wrap_minutes, no_grace=()):
         policy = os.path.join(self.tmp, "policy.json")
         with open(os.path.join(ROOT, "policy", "quota.json")) as f:
             p = json.load(f)
         p["claude"]["wrap_up_minutes"] = wrap_minutes
+        p["claude"]["no_grace"] = {"agents": list(no_grace)}
         with open(policy, "w") as f:
             json.dump(p, f)
         self.flag = os.path.join(self.tmp, "wrap-up-1")
@@ -438,6 +439,16 @@ class Cli(unittest.TestCase):
         rel = self.release(run, token, wrap_minutes=0.01)  # 0.6 seconds
         self.assertEqual(run.wait(timeout=10), -15)
         self.assertIn("after being asked to wrap up", rel.communicate(timeout=10)[1])
+        self.assertEqual([s["action"] for s in self.stops()], ["asked to wrap up", "stopped"])
+
+    def test_a_no_grace_agent_is_stopped_at_the_next_check(self):
+        # Benjamin, 2026-10-15: Codex-Principal used 81 points of a 60-point window inside its 10-minute grace.
+        token = self.q("admit", "--provider", "claude", "--agent", "cp", "--pid", str(os.getpid())).stdout.strip()
+        run = subprocess.Popen(["sleep", "30"])
+        self.usage(40 + 23, 12)
+        rel = self.release(run, token, wrap_minutes=10, no_grace=["cp"])
+        self.assertEqual(run.wait(timeout=10), -15)
+        rel.communicate(timeout=10)
         self.assertEqual([s["action"] for s in self.stops()], ["asked to wrap up", "stopped"])
 
     def test_a_run_inside_the_caps_is_left_alone(self):
