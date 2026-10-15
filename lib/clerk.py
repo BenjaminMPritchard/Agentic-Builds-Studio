@@ -438,6 +438,8 @@ class Clerk:
             if ended is None or self.now() - ended < RESUME_AFTER:
                 continue
             issue = (r.get("contextSnapshot") or {}).get("issueId")
+            if agent_id == self.director and not issue:
+                issue = self.director_inbox(issues)  # a Director run with no issue cannot write to any task
             if self.once(f"resume-capped:{r['id']}", f"wake {a.get('name', agent_id)} after a cap refusal",
                          self.pc.wake_agent, agent_id, True, "Usage cap refused your last run; trying again", issue):
                 self.log("resume_capped", agent=a.get("name", agent_id), run=r["id"], issue=issue)
@@ -768,12 +770,25 @@ class Clerk:
         else:
             self.pc.put_document(inbox["id"], "digest", text)
         wake = bool(self.needs_director or self.needs_board)
-        h = hashlib.sha256((str(self.needs_director) + str(self.needs_board)).encode()).hexdigest()
+        # "on-inbox": wakes before 2026-10-15 ran on no task and could not write, so the same list wakes it once more
+        h = hashlib.sha256(("on-inbox" + str(self.needs_director) + str(self.needs_board)).encode()).hexdigest()
         if wake and self.director and h != self.state.get("last_wake_hash"):
             if not self.dry:
                 self.state["last_wake_hash"] = h
-            self.act("wake-director", self.pc.wake_agent, self.director, fresh=True)
+            self.act("wake-director", self.pc.wake_agent, self.director, True, "clerk", self.director_inbox(issues))
         self.log("digest", wake=wake, dry=self.dry)
+
+    def director_inbox(self, issues):
+        """The Director inbox's id, reopened if it is parked, so a Director wake runs on it. Paperclip refuses every
+        write to another task from a run that is not on a task (cross_issue_influence_run_context_required), and the
+        Director cannot take a blocked task: on 2026-10-15 four Director runs decided all six stuck tasks and Paperclip
+        refused every one of the writes, because the Clerk woke it on no task and it had parked its inbox as blocked."""
+        inbox = next((i for i in issues if i.get("title") == "Director inbox"), None)
+        if not inbox:
+            return None
+        if inbox.get("status") in ("blocked", "done", "cancelled", "backlog"):
+            self.act("reopen the Director inbox", self.pc.patch_issue, inbox["id"], status="todo", blockedByIssueIds=[])
+        return inbox["id"]
 
     # ---- 8: weekly -------------------------------------------------------------------------
     def weekly(self):

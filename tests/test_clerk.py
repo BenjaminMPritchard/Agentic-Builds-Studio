@@ -837,3 +837,34 @@ class ReviewsStayWithAgents(unittest.TestCase):
                     executionState={"currentStageType": "review", "changesRequestedCount": 1})
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.fp.patches, [])
+
+
+class DirectorWakesOnInbox(unittest.TestCase):
+    """2026-10-15: four Director runs decided all six stuck tasks and Paperclip refused every write
+    (cross_issue_influence_run_context_required): the Clerk woke it on no task, and its inbox was parked blocked."""
+
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.pc.wake_agent = Paperclip.wake_agent.__get__(self.pc)  # the real call, recorded by the fake
+        self.fp.agents = [{"id": "dir", "name": "Director", "status": "idle"}]
+        self.fp.add(id="inbox", title="Director inbox", status="blocked", blockedByIssueIds=["x"])
+
+    def test_the_digest_wake_reopens_the_inbox_and_runs_on_it(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir")
+        c.needs_director = ["AGE-63: stuck"]
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues))
+        self.assertEqual(self.fp.wakes[0][0], "dir")
+        self.assertEqual(self.fp.wakes[0][1]["payload"], {"issueId": "inbox"})
+        self.assertEqual((self.fp.issues["inbox"]["status"], self.fp.issues["inbox"]["blockedByIssueIds"]), ("todo", []))
+
+    def test_a_capped_director_is_woken_on_its_inbox(self):
+        t = 1_759_400_000
+        import datetime
+        iso = datetime.datetime.fromtimestamp(t - 1800, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        self.fp.runs_ = [{"id": "r1", "agentId": "dir", "status": "failed", "createdAt": iso, "finishedAt": iso,
+                          "error": "studio-quota: claude cap reached; not starting", "contextSnapshot": {}}]
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: t, director_id="dir")
+        c.resume_capped(list(self.fp.issues.values()), {})
+        self.assertEqual(self.fp.wakes[0][1]["payload"], {"issueId": "inbox"})
