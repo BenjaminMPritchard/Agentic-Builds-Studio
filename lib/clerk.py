@@ -478,10 +478,8 @@ class Clerk:
             if state.get("status") != "pending" or state.get("currentStageType") != "review" or not who \
                     or agents.get(who, {}).get("status") == "paused":
                 continue
-            if i["status"] == "blocked":
-                note = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
-                if not note or STRANDED_REVIEW not in (note[0].get("body") or ""):
-                    continue  # blocked by someone, not by Paperclip giving up on the reviewer
+            if i["status"] == "blocked" and not self.paperclip_gave_up(i):
+                continue  # blocked by someone, not by Paperclip giving up on the reviewer
             prs = [w for w in self.pc.work_products(i["id"]) or [] if w.get("type") == "pull_request"]
             if prs and all(w.get("status") in ("merged", "closed") for w in prs):
                 continue  # nothing left to review: its PR is merged or closed
@@ -522,6 +520,19 @@ class Clerk:
             self.act(f"wake {name}", self.pc.wake_agent, reviewer, True, f"Review {i.get('identifier')}", i["id"])
             self.mark(key)
             self.log("restart_review", task=i.get("identifier"), reviewer=name, was=agents.get(who, {}).get("name"))
+
+    def paperclip_gave_up(self, i):
+        """Paperclip blocked this review itself: its note is the latest comment, or its own recovery made the latest
+        move to blocked. 2026-10-16: the Director commented on AGE-64 after Paperclip blocked it, which hid the note,
+        and Codex sat idle all morning with its whole window free."""
+        note = sorted(self.pc.comments(i["id"]), key=lambda c: c.get("createdAt", ""))[-1:]
+        if note and STRANDED_REVIEW in (note[0].get("body") or ""):
+            return True
+        for a in sorted(self.pc.issue_activity(i["id"]) or [], key=lambda a: a.get("createdAt", ""), reverse=True):
+            d = a.get("details") or {}
+            if a.get("action") == "issue.updated" and "blocked" in (d.get("status"), ((d.get("changes") or {}).get("status") or {}).get("to")):
+                return a.get("actorType") == "system" and str(d.get("source", "")).startswith("recovery.")
+        return False
 
     def reviews_stay_with_agents(self, issues, by_id):
         """Keep agent reviews away from Benjamin. Paperclip hands a review stage to the task's responsible person after

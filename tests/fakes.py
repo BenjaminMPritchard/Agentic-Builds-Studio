@@ -20,6 +20,7 @@ class Server:
 class FakePaperclip(Server):
     def __init__(self):
         self.issues, self.docs, self.comments, self.interactions_ = {}, {}, [], {}
+        self.activity_ = {}
         self.doc_revisions = {}
         self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
         self.quota = []
@@ -68,6 +69,8 @@ class FakePaperclip(Server):
                                           for n, (iid, b) in enumerate(fake.comments) if iid == m[1]])
                 m = re.fullmatch(r"/api/issues/(\w+)/interactions", p)
                 if m: return s.send(200, fake.interactions_.get(m[1], []))
+                m = re.fullmatch(r"/api/issues/(\w+)/activity", p)
+                if m: return s.send(200, fake.activity_.get(m[1], []))
                 m = re.fullmatch(r"/api/issues/(\w+)", p)
                 if m: return s.send(200, fake.issues[m[1]]) if m[1] in fake.issues else s.send(404, {})
                 m = re.fullmatch(r"/api/issues/(\w+)/heartbeat-context", p)
