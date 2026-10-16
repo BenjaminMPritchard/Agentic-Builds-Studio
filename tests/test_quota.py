@@ -118,10 +118,25 @@ class Controller(unittest.TestCase):
 
     def test_the_studio_five_hour_cap_refuses_a_run(self):
         tok, _ = self.admit(reading(10, 10))
+        quota.release(self.l, tok, reading(20.5, 11), self.t)  # studio has used 10.5 of 12
+        tok, why = self.admit(reading(20.5, 11))
+        self.assertIsNone(tok)  # 10.5 + 1 (min_job) + 1 (margin) > 12
+        self.assertTrue(any(w.startswith("studio 5-hour") for w in why), why)
+
+    def test_a_run_starts_in_the_room_left_when_it_is_less_than_the_estimate(self):
+        # Benjamin, 2026-10-16: Codex-Builder (estimate 30) was refused with 29 of 60 left.
+        tok, _ = self.admit(reading(10, 10))
         quota.release(self.l, tok, reading(18.5, 11), self.t)  # studio has used 8.5 of 12
         tok, why = self.admit(reading(18.5, 11))
-        self.assertIsNone(tok)  # 8.5 + 3 (estimate) + 1 (margin) > 12
-        self.assertTrue(any(w.startswith("studio 5-hour") for w in why), why)
+        self.assertTrue(tok, why)  # 8.5 + 3 (estimate) + 1 > 12, but 2.5 points are left
+        self.assertEqual(self.l["active"][tok]["reserve"]["five_hour"], 2.5)
+
+    def test_the_room_left_is_not_shared_by_several_runs(self):
+        first, _ = self.admit(reading(0, 0), pid=1)
+        self.l["studio"]["five_hour"]["Sep 29, 6:50am (Europe/London)"] = 6.0
+        tok, why = self.admit(reading(6, 0), pid=2)
+        self.assertIsNone(tok)  # 6 + 3 reserved + 3 + 1 > 12: the full estimate counts while a run is active
+        self.assertTrue(first)
 
     def test_exactly_at_the_cap_is_allowed(self):
         tok, _ = self.admit(reading(10, 10))

@@ -292,16 +292,18 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
     observe(ledger, reading, now)
     _drop_ended(ledger, now)
     job = estimate(ledger, agent, policy)
-    r = policy.get("reserve") or {}
-    if agent in r.get("agents", ()):
-        # a reserved agent's own estimate counts for at most the reserve less the margin, so the reserve always
-        # admits it: 2026-10-15 the others stopped at 18 of 22 as meant, and the Director (18 + 4 + margin 1 = 23)
-        # was refused all morning
-        room = float(r.get("five_hour", 0)) - policy["margin"]["five_hour"]
-        job = {**job, "five_hour": min(job["five_hour"], max(policy["min_job"]["five_hour"], room))}
     s = status(ledger, reading, policy)
     m = policy["margin"]
     reasons = []
+    limits = {"five_hour": policy["five_hour_cap"] - held_back(policy, agent), "week": policy["weekly_cap"]}
+    for w in WINDOWS:
+        # Benjamin, 2026-10-16 ("yes quota fill"): with no other run holding points, a run starts in whatever room is
+        # left, down to min_job; the wrap-up near the cap ends it. Codex-Builder (estimate 30) sat idle with 29 of 60
+        # left, and the Director (estimate 4) was refused at 18 of 22 on 2026-10-15. With runs active the full
+        # estimate still counts, so several runs cannot squeeze into the same last points.
+        if not s["reserved"][w]:
+            room = limits[w] - s["studio"][w] - m[w]
+            job = {**job, w: min(job[w], max(policy["min_job"][w], room))}
 
     def need(label, used, w, limit, extra=0.0):
         total = used + s["reserved"][w] + job[w] + m[w] + extra
@@ -310,8 +312,8 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
                            f"{m[w]:g}{f' + personal {extra:g}' if extra else ''} = {total:g} > {limit:g} "
                            f"(resets {reading[w]['key'] or 'unknown'})")
 
-    need("studio 5-hour", s["studio"]["five_hour"], "five_hour", policy["five_hour_cap"] - held_back(policy, agent))
-    need("studio weekly", s["studio"]["week"], "week", policy["weekly_cap"])
+    need("studio 5-hour", s["studio"]["five_hour"], "five_hour", limits["five_hour"])
+    need("studio weekly", s["studio"]["week"], "week", limits["week"])
     need("account 5-hour", s["account"]["five_hour"], "five_hour", 100)
     personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
     need("account weekly", s["account"]["week"], "week", 100, max(0.0, policy["personal_weekly"] - personal_used))
