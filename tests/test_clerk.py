@@ -749,6 +749,30 @@ class RestartReviews(unittest.TestCase):
                           for p in self.fp.patches if "executionPolicy" in p[1]], ["cx", "prin"])
         self.assertEqual(self.woken, [("prin", "r1")])
 
+    def test_a_stage_paperclip_gave_up_on_is_restored_after_someone_comments(self):
+        # 2026-10-16: the Director commented on AGE-64 after Paperclip blocked its review, and the review sat all morning
+        self.review("r1", status="blocked")
+        self.fp.comments.append(("r1", "Director: the fix task is done; Codex-Principal re-checks B3."))
+        self.fp.activity_["r1"] = [
+            {"action": "issue.comment_added", "createdAt": self.iso(70), "actorType": "agent", "details": {}},
+            {"action": "issue.updated", "createdAt": self.iso(80), "actorType": "system",
+             "details": {"source": "recovery.reconcile_execution_review_participant", "status": "blocked"}}]
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        self.tick()
+        self.assertEqual(self.woken, [("prin", "r1")])
+
+    def test_a_review_an_agent_blocked_is_left_alone(self):
+        self.review("r1", status="blocked")
+        self.fp.comments.append(("r1", "Blocked: waiting for packet 5"))
+        self.fp.activity_["r1"] = [
+            {"action": "issue.updated", "createdAt": self.iso(70), "actorType": "agent",
+             "details": {"source": "comment", "changes": {"status": {"from": "in_review", "to": "blocked"}}}},
+            {"action": "issue.updated", "createdAt": self.iso(80), "actorType": "system",
+             "details": {"source": "recovery.reconcile_execution_review_participant", "status": "blocked"}}]
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        self.tick()
+        self.assertEqual(self.woken, [])
+
     def test_left_alone(self):
         self.review("live"); self.review("recent"); self.review("person_blocked", status="blocked")
         self.fp.comments.append(("person_blocked", "Blocked: waiting for Benjamin"))
