@@ -168,15 +168,17 @@ class Paperclip:
     # --- CLI wrappers (documented) --------------------------------------------------
     def wake_agent(self, agent_id, fresh=True, reason="clerk", issue_id=None):
         """POST /api/agents/{id}/wakeup (in the live OpenAPI spec). Returns True on success. With issue_id the
-        agent is woken on that issue, as Paperclip does for an assignment."""
+        agent is woken on that issue, as Paperclip does for an assignment. A wake Paperclip answers with
+        status "skipped" (2026-10-16: AGE-64 under a recovery hold, execution_reconciliation_required) started
+        nothing, so it is False too."""
         body = {"source": "automation", "triggerDetail": "system", "reason": reason, "forceFreshSession": fresh}
         if issue_id:
             body.update(source="assignment", payload={"issueId": issue_id})
         try:
-            self.call("POST", f"/api/agents/{agent_id}/wakeup", body)
-            return True
+            r = self.call("POST", f"/api/agents/{agent_id}/wakeup", body)
         except ApiError:
             return False
+        return not (isinstance(r, dict) and r.get("status") == "skipped")
 
     def export_company(self, company_id, out):
         return subprocess.run([self.cli, "company", "export", company_id, "--out", out],
