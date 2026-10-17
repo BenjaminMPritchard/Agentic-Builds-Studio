@@ -21,6 +21,7 @@ class FakePaperclip(Server):
     def __init__(self):
         self.issues, self.docs, self.comments, self.interactions_ = {}, {}, [], {}
         self.activity_ = {}
+        self.wake_reply = {}
         self.doc_revisions = {}
         self.agents, self.runs_, self.patches, self.checkouts, self.wakes = [], [], [], [], []
         self.quota = []
@@ -122,7 +123,7 @@ class FakePaperclip(Server):
                 m = re.fullmatch(r"/api/agents/(\w+)/wakeup", s.path)
                 if m:
                     if "forceFreshSession" not in b: return s.send(400, {"error": "forceFreshSession required"})
-                    fake.wakes.append((m[1], b)); return s.send(200, {})
+                    fake.wakes.append((m[1], b)); return s.send(200, fake.wake_reply)
                 s.send(404, {})
         return H
 

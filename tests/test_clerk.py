@@ -785,6 +785,86 @@ class RestartReviews(unittest.TestCase):
         self.assertEqual((self.woken, self.fp.patches), ([], []))
 
 
+    def test_a_review_paperclip_will_not_start_goes_to_the_director_once(self):
+        # 2026-10-16: AGE-64 was held for reconciliation; every wake was skipped and the Clerk commented every 30 min
+        self.review("r1", status="blocked")
+        self.fp.comments.append(("r1", "Paperclip retried the pending execution-review participant once, but ..."))
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        self.pc.wake_agent = lambda a, fresh=True, reason="", issue=None: self.woken.append((a, issue)) is not None
+        for t in (self.T, self.T + 3600):
+            c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: t)
+            c.restart_reviews(list(self.fp.issues.values()), dict(self.fp.issues))
+            c.save()
+            self.fp.issues["r1"]["updatedAt"] = self.iso(-60)  # the restore patch moves it on
+            if t == self.T:
+                self.assertEqual(len(c.needs_director), 1)
+                self.assertIn("Replace it", c.needs_director[0])
+        self.assertEqual(self.woken, [("prin", "r1")])
+        self.assertEqual([b for i, b in self.fp.comments if i == "r1" and b.startswith("[Clerk]")], [])
+
+
+class SkippedWakes(unittest.TestCase):
+    tearDown = ClerkTests.tearDown
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.pc = Paperclip(self.fp.url, "k")
+
+    def test_a_wake_paperclip_skips_is_not_a_wake(self):
+        self.assertTrue(self.pc.wake_agent("a1", issue_id="t"))
+        self.fp.wake_reply = {"status": "skipped", "reason": "execution_reconciliation_required"}
+        self.assertFalse(self.pc.wake_agent("a1", issue_id="t"))
+
+
+class ResumeAfterMerge(unittest.TestCase):
+    """2026-10-17: refurb part 4 (AGE-65) waited, blocked, for #102 to merge, and stayed blocked after it did."""
+    tearDown = ClerkTests.tearDown
+    POLICY = {"version": 1, "projects": {"mothers": {
+        "enabled": True, "repo": "o/r", "base_branch": "main", "merge_method": "merge", "authority_classes": ["A", "B"],
+        "required_checks": ["check"], "required_approvals": 1, "trusted_reviewers": [], "protected_paths": [],
+        "mergeable_paths": [], "authorised_by": "Benjamin", "authorised_on": "2026-09-30"}}}
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "cb", "name": "Codex-Builder", "status": "idle"}, {"id": "dir", "name": "Director"}]
+        self.woken = []
+        self.pc.wake_agent = lambda a, fresh=True, reason="", issue=None: self.woken.append((a, issue)) or True
+        self.state = {102: "MERGED", 7: "OPEN"}
+
+    def gh(self, args):
+        return {"number": int(args[2]), "state": self.state.get(int(args[2]), "OPEN")}
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=self.gh, merge_policy=lambda: self.POLICY, director_id="dir")
+        c.resume_after_merge(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+
+    def waiting(self, iid, note, **kw):
+        self.fp.add(**{"id": iid, "identifier": iid.upper(), "title": iid, "status": "blocked",
+                       "assigneeAgentId": "cb", "projectId": "mothers", **kw})
+        self.fp.comments.append((iid, note))
+
+    def statuses(self, iid):
+        return [p[1].get("status") for p in self.fp.patches if p[0] == iid]
+
+    def test_a_task_waiting_for_a_merged_pr_resumes_once(self):
+        self.waiting("w", "Director: PR #102 (packet 3) waits for Benjamin's merge; resume when #102 merges.")
+        self.tick(); self.tick()
+        self.assertEqual(self.statuses("w"), ["todo"])
+        self.assertEqual(self.woken, [("cb", "w")])
+
+    def test_left_alone(self):
+        self.waiting("open", "Waiting for PR #7 to merge.")
+        self.waiting("some_open", "Waiting for #102 and #7 to merge.")
+        self.waiting("no_merge_word", "PR #102 needs a rebase first.")
+        self.waiting("no_pr", "Waiting for AGE-64 to merge.")
+        self.waiting("director", "Waiting for #102 to merge.", assigneeAgentId="dir")
+        self.waiting("other_project", "Waiting for #102 to merge.", projectId="studio")
+        self.waiting("blocker_open", "Waiting for #102 to merge.", blockedBy=[{"id": "x", "status": "todo"}])
+        self.tick()
+        self.assertEqual((self.fp.patches, self.woken), ([], []))
+
+
 class ResumeThroughDeadRetries(unittest.TestCase):
     tearDown = ClerkTests.tearDown
     T = RestartReviews.T
