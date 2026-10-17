@@ -790,7 +790,11 @@ class RestartReviews(unittest.TestCase):
         self.review("r1", status="blocked")
         self.fp.comments.append(("r1", "Paperclip retried the pending execution-review participant once, but ..."))
         self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
-        self.pc.wake_agent = lambda a, fresh=True, reason="", issue=None: self.woken.append((a, issue)) is not None
+        def held(a, fresh=True, reason="", issue=None):
+            self.woken.append((a, issue))
+            self.pc.last_skip = "execution_reconciliation_required"
+            return False
+        self.pc.wake_agent = held
         for t in (self.T, self.T + 3600):
             c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: t)
             c.restart_reviews(list(self.fp.issues.values()), dict(self.fp.issues))
@@ -803,6 +807,42 @@ class RestartReviews(unittest.TestCase):
         self.assertEqual([b for i, b in self.fp.comments if i == "r1" and b.startswith("[Clerk]")], [])
 
 
+    def test_a_wake_skipped_for_another_reason_is_not_a_hold(self):
+        # 2026-10-17: AGE-92's wake was skipped (another wake was pending) and the Director was told to replace it
+        self.review("r1", status="blocked")
+        self.fp.comments.append(("r1", "Paperclip retried the pending execution-review participant once, but ..."))
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="cancelled", capped=False)]
+        def skipped(a, fresh=True, reason="", issue=None):
+            self.pc.last_skip = "wakeup_skipped"
+            return False
+        self.pc.wake_agent = skipped
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
+        c.restart_reviews(list(self.fp.issues.values()), dict(self.fp.issues))
+        self.assertEqual(c.needs_director, [])
+
+    def test_a_reviewer_the_ledger_shows_out_of_room_counts_as_capped(self):
+        # 2026-10-17: the Principal's latest run succeeded and left Claude at 21 of 22; its reviews stayed with it
+        os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
+        ledger = {"last": {"t": self.T, "five_hour": {"pct": 30.0, "key": "K", "at": self.T + 3600},
+                           "week": {"pct": 50.0, "key": "W", "at": self.T + 86400}},
+                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 40.0}}, "active": {}, "samples": {}}
+        with open(os.path.join(clerk_mod.QUOTA_DIR, "claude.json"), "w") as f:
+            json.dump(ledger, f)
+        self.review("r1")
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 60, status="succeeded", capped=False)]
+        self.tick()
+        self.assertEqual(self.reviewers("r1"), ["cx"])
+
+    def test_a_ledger_from_before_the_reset_is_not_out_of_room(self):
+        os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
+        ledger = {"last": {"t": self.T - 7200, "five_hour": {"pct": 30.0, "key": "K", "at": self.T - 60},
+                           "week": {"pct": 50.0, "key": "W", "at": self.T + 86400}},
+                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 40.0}}, "active": {}, "samples": {}}
+        with open(os.path.join(clerk_mod.QUOTA_DIR, "claude.json"), "w") as f:
+            json.dump(ledger, f)
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
+        self.assertFalse(c.window_out("claude", "prin"))
+
 class SkippedWakes(unittest.TestCase):
     tearDown = ClerkTests.tearDown
 
@@ -814,6 +854,7 @@ class SkippedWakes(unittest.TestCase):
         self.assertTrue(self.pc.wake_agent("a1", issue_id="t"))
         self.fp.wake_reply = {"status": "skipped", "reason": "execution_reconciliation_required"}
         self.assertFalse(self.pc.wake_agent("a1", issue_id="t"))
+        self.assertEqual(self.pc.last_skip, "execution_reconciliation_required")
 
 
 class ResumeAfterMerge(unittest.TestCase):
