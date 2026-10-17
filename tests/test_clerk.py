@@ -833,6 +833,13 @@ class RestartReviews(unittest.TestCase):
         self.tick()
         self.assertEqual(self.reviewers("r1"), ["cx"])
 
+    def test_a_capped_reviewer_hands_over_without_waiting_for_the_stall(self):
+        # 2026-10-17: each 20-minute cap refusal restarted the 30-minute stall, so AGE-92 never moved
+        self.review("r1")
+        self.fp.runs_ = [self.a_run("x1", "prin", "r1", 2)]
+        self.tick()
+        self.assertEqual(self.reviewers("r1"), ["cx"])
+
     def test_a_ledger_from_before_the_reset_is_not_out_of_room(self):
         os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
         ledger = {"last": {"t": self.T - 7200, "five_hour": {"pct": 30.0, "key": "K", "at": self.T - 60},

@@ -513,13 +513,6 @@ class Clerk:
             mine = [r for r in runs if r.get("agentId") == who and (r.get("contextSnapshot") or {}).get("issueId") == i["id"]]
             if any(r.get("status") in ("queued", "running", "scheduled_retry") for r in mine):
                 continue
-            last = max(mine, key=lambda r: r.get("createdAt", ""), default=None)
-            since = _epoch((last or {}).get("finishedAt") or (last or {}).get("createdAt") or full.get("updatedAt"))
-            if since is None or now - since < REVIEW_STALL:
-                continue
-            key = f"restart-review:{i['id']}:{int(since)}"
-            if self.handled(key) or self.handled(f"reconciliation-hold:{i['id']}"):
-                continue
             stages = policy.get("stages") or []
             idx = next((n for n, s in enumerate(stages) if any(p.get("agentId") == who for p in s.get("participants") or [])), None)
             if idx is None:
@@ -528,6 +521,16 @@ class Clerk:
             alt = other.get(who)
             reviewer = alt if (who in capped and alt and alt not in capped and alt not in reviewers
                                and alt != i.get("assigneeAgentId") and agents.get(alt, {}).get("status") != "paused") else who
+            last = max(mine, key=lambda r: r.get("createdAt", ""), default=None)
+            since = _epoch((last or {}).get("finishedAt") or (last or {}).get("createdAt") or full.get("updatedAt"))
+            # The stall is for waking the same reviewer again. A capped reviewer's review moves at once: 2026-10-17 the
+            # Clerk woke the capped Principal every 20 minutes, each refusal restarted the 30-minute stall, and AGE-92
+            # never moved to Codex-Principal.
+            if since is None or (reviewer == who and now - since < REVIEW_STALL):
+                continue
+            key = f"restart-review:{i['id']}:{int(since)}"
+            if self.handled(key) or self.handled(f"reconciliation-hold:{i['id']}"):
+                continue
             def with_reviewer(agent):
                 p = json.loads(json.dumps(policy))
                 p["stages"][idx]["participants"] = [{"type": "agent", "agentId": agent}]
