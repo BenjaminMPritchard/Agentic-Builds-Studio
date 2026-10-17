@@ -28,6 +28,7 @@ REVIEW_STALL = 30 * 60  # seconds without a reviewer run before the Clerk steps 
 # 2026-10-14: reviews never wait on him; after SETTLE_ROUNDS the Director settles the dispute instead.
 REVIEW_ROUNDS_MAX = 50  # Paperclip's own maximum (2026-10-14: 99 was refused, "expected number to be <=50")
 SETTLE_ROUNDS = 2
+RECONCILIATION_HOLD = "execution_reconciliation_required"  # Paperclip's reason when it skips a wake on a held task
 PR_NUMBER = re.compile(r"(?:PR\s*|pull/|(?<![\w/])#)(\d+)\b")  # "PR #102", "#102", ".../pull/102"; not "AGE-64"
 STUCK_AFTER = 6 * 3600  # seconds a blocked task may sit untouched, with nothing open blocking it, before the Director hears
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
@@ -417,6 +418,28 @@ class Clerk:
         except (OSError, ValueError, KeyError):
             return False
 
+    def window_out(self, provider, agent_id):
+        """True when the provider's usage-cap ledger shows no room left in this 5-hour window or week for even the
+        smallest run of this agent. A reading from before the window reset says nothing, so it counts as room."""
+        try:
+            with open(os.path.join(QUOTA_DIR, f"{provider}.json")) as f:
+                ledger = json.load(f)
+            policy = quota.load_policy(QUOTA_POLICY, provider)
+            last = ledger.get("last")
+            if not last:
+                return False
+            s = quota.status(ledger, last, policy)
+            limits = {"five_hour": policy["five_hour_cap"] - quota.held_back(policy, agent_id), "week": policy["weekly_cap"]}
+            for w in ("five_hour", "week"):
+                reset = (last.get(w) or {}).get("at")
+                if reset is not None and reset <= self.now():
+                    continue
+                if s["studio"][w] + policy["margin"][w] + policy["min_job"][w] > limits[w]:
+                    return True
+            return False
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+
     def resume_capped(self, issues, by_id):
         """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.
         Paperclip retries a refused run a few times and then leaves the agent in error; nothing woke it after
@@ -470,6 +493,9 @@ class Clerk:
         # review on the capped Principal while Codex had its whole window free
         capped = {a for a, r in latest.items() if r.get("status") == "failed" and CAP_REFUSED.search(r.get("error") or "")
                   and (_cap_reset(r.get("error") or "", now) or float("inf")) > now}
+        # 2026-10-17: the Principal's latest run had succeeded, so it did not count as capped, though that run left
+        # Claude at 21 of 22; AGE-66 and AGE-92 stayed with it while Codex had room. The ledger says so directly.
+        capped |= {a for a, provider in ((principal, "claude"), (codex, "codex")) if a and self.window_out(provider, a)}
         for i in issues:
             if i.get("status") not in ("in_review", "blocked"):
                 continue
@@ -492,7 +518,7 @@ class Clerk:
             if since is None or now - since < REVIEW_STALL:
                 continue
             key = f"restart-review:{i['id']}:{int(since)}"
-            if self.handled(key) or self.handled(f"review-held:{i['id']}"):
+            if self.handled(key) or self.handled(f"reconciliation-hold:{i['id']}"):
                 continue
             stages = policy.get("stages") or []
             idx = next((n for n, s in enumerate(stages) if any(p.get("agentId") == who for p in s.get("participants") or [])), None)
@@ -518,11 +544,12 @@ class Clerk:
                          executionPolicy=with_reviewer(who))
             woke = self.act(f"wake {name}", self.pc.wake_agent, reviewer, True, f"Review {i.get('identifier')}", i["id"])
             self.mark(key)
-            if woke is False:
+            if woke is False and getattr(self.pc, "last_skip", None) == RECONCILIATION_HOLD:
                 # 2026-10-16: Paperclip held AGE-64 for reconciliation and skipped every wake; nothing a wake, a
                 # comment or a resolve did cleared it, and the Clerk commented on it every 30 minutes. A fresh
-                # task carries no hold: the Director's replacement (AGE-86) was reviewed within the hour.
-                self.mark(f"review-held:{i['id']}")
+                # task carries no hold: the Director's replacement (AGE-86) was reviewed within the hour. Only
+                # that reason: 2026-10-17 a wake skipped for another reason sent AGE-92 to the Director by mistake.
+                self.mark(f"reconciliation-hold:{i['id']}")
                 self.needs_director.append(
                     f"{i.get('identifier', i['id'])} ({i.get('title', '')}): Paperclip will not start its reviewer "
                     f"{name} (the task is held for reconciliation). Replace it: a new review task with the same "

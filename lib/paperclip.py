@@ -174,11 +174,15 @@ class Paperclip:
         body = {"source": "automation", "triggerDetail": "system", "reason": reason, "forceFreshSession": fresh}
         if issue_id:
             body.update(source="assignment", payload={"issueId": issue_id})
+        self.last_skip = None  # why the latest wake was skipped, e.g. "execution_reconciliation_required"
         try:
             r = self.call("POST", f"/api/agents/{agent_id}/wakeup", body)
         except ApiError:
             return False
-        return not (isinstance(r, dict) and r.get("status") == "skipped")
+        if isinstance(r, dict) and r.get("status") == "skipped":
+            self.last_skip = r.get("reason") or "skipped"
+            return False
+        return True
 
     def export_company(self, company_id, out):
         return subprocess.run([self.cli, "company", "export", company_id, "--out", out],
