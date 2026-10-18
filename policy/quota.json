@@ -21,6 +21,8 @@
     "min_job": {"five_hour": 1, "week": 0.2},
     "estimate_samples": 3,
     "max_run_hours": 6,
+    "spare_builds_below_per_day": 10,
+    "_spare_comment": "Benjamin, 2026-10-18: when Codex's week left, spread over the days to its reset, is under this many points a day, the Clerk moves Codex-Builder's waiting tasks to the Claude Builders and keeps Codex for reviews (lib/clerk.py spare_codex). Not a cap.",
     "no_grace": {"_comment": "Benjamin, 2026-10-15: these agents get no wrap-up grace; at the cap they are stopped at the next check. Codex-Principal (31ff44ca) used 81 points of a 60-point window in 10 minutes.",
                  "agents": ["31ff44ca-7677-4521-aa3d-00d8e51748be"]}
   }

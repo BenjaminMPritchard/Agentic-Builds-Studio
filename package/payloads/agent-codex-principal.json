@@ -52,7 +52,13 @@
       "intervalSec": 0,
       "cooldownSec": 120,
       "maxConcurrentRuns": 1,
-      "wakeOnDemand": true
+      "wakeOnDemand": true,
+      "sessionCompaction": {
+        "enabled": true,
+        "maxRawInputTokens": 2000000,
+        "maxSessionRuns": 0,
+        "maxSessionAgeHours": 0
+      }
     }
   },
   "permissions": {
