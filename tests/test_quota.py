@@ -222,6 +222,20 @@ class Controller(unittest.TestCase):
         self.assertEqual(quota.over_cap(self.l, r, policy, self.t, agent=DIRECTOR), [])
         self.assertTrue(quota.over_cap(self.l, r, policy, self.t, headroom=3, agent=DIRECTOR))
 
+    def test_a_fast_run_is_asked_to_wrap_up_one_check_early(self):
+        # 2026-10-18: a Builder-2 run used 25 points in 10 minutes; two-minute checks first saw it at 23 of 18.
+        policy = {**POLICY, "five_hour_cap": 22, "reserve": RESERVE}
+        tok, why = quota.admit(self.l, reading(0, 10), "rec", 1, policy, self.t, pid_alive=alive)
+        self.assertTrue(tok, why)
+        self.t += 300
+        r = reading(12, 11)  # 12 points in 5 minutes: about 2.4 a minute
+        self.assertEqual(quota.over_cap(self.l, r, policy, self.t, headroom=2, agent="rec"), [])  # no pace given
+        why = quota.over_cap(self.l, r, policy, self.t, headroom=2, agent="rec", token=tok, every=60)
+        self.assertEqual(why, [])  # 12 + 2.4 stays under 18 - 2
+        why = quota.over_cap(self.l, r, policy, self.t, headroom=2, agent="rec", token=tok, every=120)
+        self.assertIn("this run's pace adds about 5 more by the next check", why[0])  # 12 + 4.8 >= 16
+        self.assertEqual(quota.over_cap(self.l, r, policy, self.t, agent="rec", token=tok, every=120), [])  # at the cap only
+
     def test_the_weekly_caps(self):
         self.assertTrue(self.fresh(79, 79)[0])  # 79 + 0.5 + 0.5 = 80: at the studio cap, allowed
         tok, why = self.fresh(79.5, 79.5)
