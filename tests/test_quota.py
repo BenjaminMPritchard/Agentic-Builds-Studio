@@ -285,12 +285,41 @@ class Controller(unittest.TestCase):
         # 2026-09-30: a Paperclip restart killed a run and its release watcher; hours of Benjamin's own use
         # were then charged to it at the next admission.
         tok, _ = self.admit(reading(10, 10), pid=999)  # pid 999 is "gone" in these tests
+        self.t += 3 * 3600  # the next admission is hours later
         tok2, _ = self.admit(reading(25, 12))
         self.assertNotIn(tok, self.l["active"])
         self.assertEqual(self.l["samples"]["rec"], [[0.0, 0.0]])
         self.assertEqual(quota.status(self.l, reading(25, 12), POLICY)["studio"], {"five_hour": 0.0, "week": 0.0})
         self.assertEqual(self.l["finished"][0]["ended"], "process gone")
         self.assertIn(tok2, self.l["active"])
+
+    def test_a_run_gone_since_a_recent_reading_gets_the_usage_reported_after_it(self):
+        # 2026-10-18: back-to-back Codex runs; each next run started before the last one's watcher released it,
+        # so the usage reported late was nobody's and the studio counted 63 of a window the account showed at 86.
+        tok, _ = self.admit(reading(10, 10), pid=999)
+        tok2, _ = self.admit(reading(16, 11))  # a minute later
+        self.assertNotIn(tok, self.l["active"])
+        self.assertEqual(self.l["samples"]["rec"], [[6.0, 1.0]])
+        self.assertEqual(self.l["finished"][0]["ended"], "process gone")
+        self.assertIn(tok2, self.l["active"])
+
+    def test_the_week_is_paced_by_the_day_when_the_policy_asks(self):
+        # 2026-10-18: Codex's 5-hour cap let it spend 78 of its week in a day and a half.
+        policy = {**POLICY, "week_pace": True, "five_hour_cap": 100, "weekly_cap": 100}
+        wk_at = self.t + 60 + 4 * quota.DAY  # four days to the weekly reset
+        r = lambda s, w: {**reading(s, w), "week": {"pct": w, "key": "W", "at": wk_at}}
+        tok, why = quota.admit(self.l, r(0, 60), "rec", 1, policy, self.t + 60, pid_alive=alive)
+        self.assertTrue(tok, why)  # today's share: (100 - 60 - 0.5) / 4 = 9.875
+        self.assertAlmostEqual(self.l["pace"]["budget"], 9.875)
+        quota.release(self.l, tok, r(30, 69.8), self.t + 120)  # 9.8 of the week used today
+        tok, why = quota.admit(self.l, r(30, 69.8), "rec", 2, policy, self.t + 180, pid_alive=alive)
+        self.assertIsNone(tok)  # 9.8 + 0 + min_job > 9.875
+        self.assertTrue(any(w.startswith("studio weekly pace") for w in why), why)
+        self.assertTrue(quota.pace_out(self.l, r(30, 69.8), policy, self.t + 180))
+        tok, why = quota.admit(self.l, r(30, 69.8), "rec", 3, policy, self.t + 120 + quota.DAY, pid_alive=alive)
+        self.assertTrue(tok, why)  # a new day: 29.7 left over about three days
+        self.assertAlmostEqual(self.l["pace"]["budget"], round(29.7 / ((wk_at - self.t - 120 - quota.DAY) / quota.DAY), 3))
+        self.assertIsNone(quota.week_pace(self.l, r(30, 69.8), POLICY, self.t))  # off unless the policy asks
 
     def test_release_without_a_reading_keeps_the_run_counted(self):
         tok, _ = self.admit(reading(10, 10))

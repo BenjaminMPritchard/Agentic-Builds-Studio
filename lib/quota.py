@@ -246,25 +246,36 @@ def flush_finished(ledger, path):
     return len(done)
 
 
+GONE_RECENT = 15 * 60  # seconds: a run gone since a reading this recent still gets the usage reported after it
+
+
 def _drop_gone(ledger, policy, now, pid_alive):
     """Before counting new usage: a run whose process is gone (or that is too old) ended at some unknown time,
     so it gets none of the usage since the last reading. Otherwise a run killed with its release watcher (a
     service restart) would absorb everything the account uses until the next admission (2026-09-30: 15 points
-    of Benjamin's own use)."""
+    of Benjamin's own use). A run gone since a reading under GONE_RECENT old ended just now, as the next run
+    starts before its watcher has released it: it still gets the usage reported since, which is its own, as
+    usage is reported late. 2026-10-18: back-to-back Codex runs each lost theirs, and the studio counted 63 of a
+    5-hour window the account showed at 86."""
+    last = (ledger.get("last") or {}).get("t")
     for token, run in list(ledger["active"].items()):
         if run.get("ended"):
             continue
         if not pid_alive(run["pid"]):
-            _finish(ledger, token, now, "process gone")
+            if last is not None and now - last <= GONE_RECENT:
+                run["ended"] = "process gone"  # counted, then finished by _drop_ended
+            else:
+                _finish(ledger, token, now, "process gone")
         elif now - run["t"] > policy["max_run_hours"] * 3600:
             _finish(ledger, token, now, "too old")
 
 
 def _drop_ended(ledger, now):
-    """After counting: runs released without a reading ended just before this reading; now they end."""
+    """After counting: runs released without a reading, or gone since a recent one, ended just before this
+    reading; now they end."""
     for token, run in list(ledger["active"].items()):
         if run.get("ended"):
-            _finish(ledger, token, now, "released without a reading")
+            _finish(ledger, token, now, run["ended"] if isinstance(run["ended"], str) else "released without a reading")
 
 
 def estimate(ledger, agent, policy):
@@ -298,6 +309,38 @@ def week_room(ledger, reading, policy):
     return min(studio, account)
 
 
+DAY = 86400
+
+
+def week_pace(ledger, reading, policy, now, update=True):
+    """With policy["week_pace"]: today's share of the week left, as (spent today, today's budget, the day's start),
+    or None. The week left is the smaller of the studio's weekly cap and the account's own week, less the margin;
+    each day (24 hours from the first reading after the last day ended) gets that, spread over the days to the
+    reset, at least one. A day that spends less leaves more for the days after, and the last day gets everything
+    left. 2026-10-18: Codex's 5-hour cap of 60 let it spend its whole week in under three days; it was at 78 of
+    100 with six days to go, while Claude's smaller 5-hour cap paces its week on its own."""
+    if not policy.get("week_pace"):
+        return None
+    w = reading["week"]
+    if w.get("at") is None or w["at"] <= now:
+        return None
+    s = status(ledger, reading, policy)
+    left = min(policy["weekly_cap"] - s["studio"]["week"], 100 - s["account"]["week"]) - policy["margin"]["week"]
+    p = ledger.get("pace")
+    if not p or p.get("key") != w["key"] or now - p["t"] >= DAY:
+        p = {"key": w["key"], "t": now, "left": left,
+             "budget": round(max(0.0, left) / max(1.0, (w["at"] - now) / DAY), 3)}
+        if update:
+            ledger["pace"] = p
+    return max(0.0, p["left"] - left), p["budget"], p["t"]
+
+
+def pace_out(ledger, reading, policy, now):
+    """True when today's share of the week (week_pace) has no room for even the smallest run."""
+    pace = week_pace(ledger, reading, policy, now, update=False)
+    return bool(pace) and pace[0] + policy["min_job"]["week"] > pace[1]
+
+
 def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=None):
     """Returns (token, []) when admitted, else (None, reasons). Mutates the ledger either way."""
     _drop_gone(ledger, policy, now, pid_alive)
@@ -329,6 +372,13 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
     need("account 5-hour", s["account"]["five_hour"], "five_hour", 100)
     personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
     need("account weekly", s["account"]["week"], "week", 100, max(0.0, policy["personal_weekly"] - personal_used))
+    pace = week_pace(ledger, reading, policy, now)
+    if pace:
+        spent, budget, start = pace
+        if spent + s["reserved"]["week"] + policy["min_job"]["week"] > budget:
+            reasons.append(f"studio weekly pace: used {spent:g} + reserved {s['reserved']['week']:g} today of today's "
+                           f"{budget:g} (the week left spread over the days to its reset at {reading['week']['key']}); "
+                           f"the next day starts {time.strftime('%b %d %H:%M', time.localtime(start + DAY))}")
     for model, pct in reading.get("other", {}).items():
         if pct + m["week"] > 100:
             reasons.append(f"{model} weekly limit {pct:g}% used")
