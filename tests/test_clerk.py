@@ -1046,3 +1046,53 @@ class DirectorInboxNotWatched(unittest.TestCase):
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir")
         c.watchdog(list(self.fp.issues.values()), dict(self.fp.issues))
         self.assertEqual(c.needs_board, [])
+
+
+class SpareCodex(unittest.TestCase):
+    """2026-10-18: Codex stood at 67 of 100 with six days to its weekly reset and would have stopped every Codex task."""
+    tearDown = ClerkTests.tearDown
+    T = 1_800_000_000
+
+    def setUp(self):
+        ClerkTests.setUp(self)
+        self.fp.agents = [{"id": "cb", "name": "Codex-Builder", "status": "idle"},
+                          {"id": "b1", "name": "Builder-1", "status": "idle"},
+                          {"id": "b2", "name": "Builder-2", "status": "idle"}]
+
+    def ledger(self, account_week, studio_week, days):
+        os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
+        ledger = {"last": {"t": self.T, "five_hour": {"pct": 10.0, "key": "K", "at": self.T + 3600},
+                           "week": {"pct": account_week, "key": "W", "at": self.T + days * 86400}},
+                  "studio": {"five_hour": {"K": 5.0}, "week": {"W": studio_week}}, "active": {}, "samples": {}}
+        with open(os.path.join(clerk_mod.QUOTA_DIR, "codex.json"), "w") as f:
+            json.dump(ledger, f)
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
+        c.spare_codex(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+        return c
+
+    def moves(self):
+        return [(p[0], p[1]["assigneeAgentId"]) for p in self.fp.patches if "assigneeAgentId" in p[1]]
+
+    def test_waiting_codex_tasks_move_to_the_least_busy_claude_builder_once(self):
+        self.ledger(67.0, 52.0, 5.9)  # 32.5 left over 5.9 days: 5.5 a day, under 10
+        self.fp.add(id="busy", identifier="AGE-1", title="b1 work", status="todo", assigneeAgentId="b1")
+        self.fp.add(id="t", identifier="AGE-91", title="t", status="blocked", assigneeAgentId="cb")
+        self.fp.add(id="u", identifier="AGE-94", title="u", status="todo", assigneeAgentId="cb")
+        self.fp.add(id="run", identifier="AGE-90", title="r", status="in_progress", assigneeAgentId="cb")
+        self.fp.add(id="held", identifier="AGE-9", title="h", status="todo", assigneeAgentId="cb", checkoutRunId="x")
+        c = self.tick()
+        self.tick()
+        self.assertEqual(self.moves(), [("t", "b2"), ("u", "b1")])
+        self.assertIn("moves from Codex-Builder to Builder-2", next(p[1]["comment"] for p in self.fp.patches if p[0] == "t"))
+        self.assertEqual(len(c.needs_director), 2)
+
+    def test_left_alone_while_the_week_lasts_or_without_a_current_reading(self):
+        self.fp.add(id="t", identifier="AGE-91", title="t", status="todo", assigneeAgentId="cb")
+        self.ledger(40.0, 30.0, 5.0)  # 59.5 over 5 days: 11.9 a day
+        self.tick()
+        self.ledger(90.0, 80.0, -0.1)  # a reading from before the reset says nothing
+        self.tick()
+        self.assertEqual(self.moves(), [])

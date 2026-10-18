@@ -129,7 +129,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.resume_after_merge, self.restart_reviews, self.reviews_stay_with_agents, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
+                     self.spare_codex, self.resume_after_merge, self.restart_reviews, self.reviews_stay_with_agents, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -439,6 +439,66 @@ class Clerk:
             return False
         except (OSError, ValueError, KeyError, TypeError):
             return False
+
+    def week_left(self, provider):
+        """(points left this week, days until the weekly reset) from the provider's usage-cap ledger: the smaller of
+        the studio's weekly cap and the account's own week, less the margin. None without a reading from this week."""
+        try:
+            with open(os.path.join(QUOTA_DIR, f"{provider}.json")) as f:
+                ledger = json.load(f)
+            policy = quota.load_policy(QUOTA_POLICY, provider)
+            last = ledger.get("last")
+            reset = ((last or {}).get("week") or {}).get("at")
+            if not last or reset is None or reset <= self.now():
+                return None
+            s = quota.status(ledger, last, policy)
+            left = min(policy["weekly_cap"] - s["studio"]["week"], 100 - s["account"]["week"]) - policy["margin"]["week"]
+            return max(0.0, left), (reset - self.now()) / 86400
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def spare_codex(self, issues, by_id):
+        """When Codex's week cannot last until its reset at the policy's pace (policy/quota.json,
+        codex.spare_builds_below_per_day), move Codex-Builder's waiting tasks (todo or blocked, no run) to the Claude
+        Builder with the fewest open tasks, so the Codex week left goes to reviews. 2026-10-18: Codex stood at 67 of
+        100 with six days to its reset, using 30 to 44 a day, and would have stopped every Codex task for four days
+        (Benjamin: "take critical jobs off it before it stops working"). Each task moves once; if the Director moves
+        it back, that stands. A task already being worked on finishes where it is."""
+        try:
+            floor = quota.load_policy(QUOTA_POLICY, "codex").get("spare_builds_below_per_day")
+        except (OSError, ValueError, KeyError):
+            return
+        room = self.week_left("codex")
+        if not floor or room is None:
+            return
+        left, days = room
+        per_day = left / max(days, 1 / 24)
+        if per_day >= floor:
+            return
+        agents = self.pc.list_agents(self.cid)
+        codex = next((a for a in agents if a.get("name") == "Codex-Builder"), None)
+        builders = sorted((a for a in agents if re.match(r"^Builder-\d+$", a.get("name") or "") and a.get("status") != "paused"),
+                          key=lambda a: a["name"])
+        if not codex or not builders:
+            return
+        load = {b["id"]: sum(1 for i in issues if i.get("assigneeAgentId") == b["id"]
+                             and i.get("status") not in ("done", "cancelled", "backlog")) for b in builders}
+        for i in issues:
+            if i.get("assigneeAgentId") != codex["id"] or i.get("status") not in ("todo", "blocked") \
+                    or i.get("checkoutRunId") or i.get("executionRunId"):
+                continue
+            to = min(builders, key=lambda b: (load[b["id"]], b["name"]))
+            name = i.get("identifier", i["id"])
+            note = (f"[Clerk] Codex has {left:.0f} points left this week and {days:.1f} days until it resets, about "
+                    f"{per_day:.1f} a day, under the {floor:g} a day Codex building needs. So this task moves from "
+                    f"Codex-Builder to {to['name']}, and the Codex week left goes to reviews. {to['name']}: build it "
+                    "from the packet as written; its review stage is unchanged.")
+            if self.once(f"spare-codex:{i['id']}", f"move {name} from Codex-Builder to {to['name']}",
+                         self.pc.patch_issue, i["id"], assigneeAgentId=to["id"], comment=note):
+                load[to["id"]] += 1
+                i["assigneeAgentId"] = to["id"]  # later steps this tick wake the new assignee, not Codex-Builder
+                self.needs_director.append(f"{name} moved from Codex-Builder to {to['name']}: Codex's week is nearly spent.")
+                self.log("spare_codex", task=name, to=to["name"], per_day=round(per_day, 1))
 
     def resume_capped(self, issues, by_id):
         """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.
