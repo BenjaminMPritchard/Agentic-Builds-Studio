@@ -15,7 +15,7 @@ The policy's `reserve` keeps some five-hour points back for the agents it names 
 works to five_hour_cap minus the reserve, and a named agent's own estimate counts for at most the reserve less
 the margin.
 No reading means no admission. Estimates start from policy and move to the largest recent measured run
-for that agent. While a run is active its watcher also reads usage every few minutes (over_cap) and stops the
+for that agent. While a run is active its watcher also reads usage every minute (over_cap) and stops the
 run once studio use reaches a cap: admission alone let one Codex run take a whole five-hour window. These are
 operating caps, not a proof against overshoot: usage is reported late and rounded, and the check is periodic.
 """
@@ -189,16 +189,28 @@ def _cap_text(policy, agent, w):
                         else f"{cap:g}-point cap")
 
 
-def over_cap(ledger, reading, policy, now, headroom=0, agent=None):
+def over_cap(ledger, reading, policy, now, headroom=0, agent=None, token=None, every=0):
     """Take a reading during a run; the reasons studio use is within `headroom` of a cap (empty while not). The
-    cap is the agent's own: less the reserve unless the reserve is for it."""
+    cap is the agent's own: less the reserve unless the reserve is for it.
+
+    With the run's `token` and the seconds until the next check (`every`), a run asked to wrap up (headroom > 0)
+    is asked one check early when, at its own pace since admission, it would pass the wrap-up line before then.
+    2026-10-18: a Builder-2 run used 25 points in 10 minutes; checks two minutes apart saw it first at 23 of 18."""
     observe(ledger, reading, now)
     s = status(ledger, reading, policy)
+    run = ledger["active"].get(token) if token else None
     out = []
     for w, label in (("five_hour", "5-hour"), ("week", "weekly")):
         cap, text = _cap_text(policy, agent, w)
-        if s["studio"][w] >= cap - headroom:
-            out.append(f"studio {label} use {s['studio'][w]:g} of the {text} (resets {s['resets'][w] or 'unknown'})")
+        used = s["studio"][w]
+        resets = f"resets {s['resets'][w] or 'unknown'}"
+        if used >= cap - headroom:
+            out.append(f"studio {label} use {used:g} of the {text} ({resets})")
+        elif run and headroom > 0 and every > 0:
+            ahead = run["used"][w] / max(60.0, now - run["t"]) * every
+            if used + ahead >= cap - headroom:
+                out.append(f"studio {label} use {used:g} of the {text}, and this run's pace adds about "
+                           f"{ahead:.0f} more by the next check ({resets})")
     return out
 
 

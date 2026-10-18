@@ -109,7 +109,7 @@ def check_running(a, path, asked):
     headroom = policy.get("wrap_up_points", quota.WRAP_UP_POINTS) if a.wrap_up else 0
     with quota.Ledger(path) as ledger:
         agent = (ledger["active"].get(a.token) or {}).get("agent")
-        reasons = quota.over_cap(ledger, r, policy, quota.now(), headroom, agent)
+        reasons = quota.over_cap(ledger, r, policy, quota.now(), headroom, agent, a.token, check_every())
     now = quota.now()
     if asked is None and a.wrap_up:
         if not reasons:
@@ -134,6 +134,11 @@ def check_running(a, path, asked):
         reasons.append(f"could not stop it: {e}")
     log_stop(a, "stopped", reasons)
     return asked, True
+
+
+def check_every():
+    """Seconds between checks during a run. A minute: a Claude run has used about 3 points a minute (2026-10-18)."""
+    return float(os.environ.get("STUDIO_QUOTA_CHECK", 60))
 
 
 def log_stop(a, what, reasons):
@@ -187,10 +192,10 @@ def main(argv):
     path = os.path.join(LEDGER_DIR, a.provider + ".json")
     runs_log = os.path.join(LEDGER_DIR, a.provider + "-runs.jsonl")
     if a.action == "release" and a.after_pid:
-        # /proc, not kill(0), to see whether the run is alive. While it is, read usage every few minutes and stop
+        # /proc, not kill(0), to see whether the run is alive. While it is, read usage every minute and stop
         # the run once studio use reaches a cap. The run's process is sudo, whose real user is still paperclip,
         # so paperclip may signal it, and sudo passes the signal on to the agent CLI.
-        every = float(os.environ.get("STUDIO_QUOTA_CHECK", 120))
+        every = check_every()
         next_check, asked, stopped = time.time() + every, None, False
         while os.path.exists(f"/proc/{a.after_pid}"):
             if not stopped and every > 0 and time.time() >= next_check:
