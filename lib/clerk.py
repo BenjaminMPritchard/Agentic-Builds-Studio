@@ -436,7 +436,7 @@ class Clerk:
                     continue
                 if s["studio"][w] + policy["margin"][w] + policy["min_job"][w] > limits[w]:
                     return True
-            return False
+            return quota.pace_out(ledger, last, policy, self.now())
         except (OSError, ValueError, KeyError, TypeError):
             return False
 
