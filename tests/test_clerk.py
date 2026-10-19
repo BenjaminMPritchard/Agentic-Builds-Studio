@@ -237,7 +237,7 @@ class ClerkTests(unittest.TestCase):
         try:
             clerk_mod.QUOTA_LEDGER = ledger
             c = self.clerk(now=lambda: 600); c.tick()
-            self.assertIn("Claude studio use 4.5 of 22 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
+            self.assertIn("Claude studio use 4.5 of 30 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
                           c.state["usage"])
             self.assertIn("reading 10 min old", c.state["usage"])
             clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "missing.json")
@@ -821,11 +821,11 @@ class RestartReviews(unittest.TestCase):
         self.assertEqual(c.needs_director, [])
 
     def test_a_reviewer_the_ledger_shows_out_of_room_counts_as_capped(self):
-        # 2026-10-17: the Principal's latest run succeeded and left Claude at 21 of 22; its reviews stayed with it
+        # 2026-10-17: the Principal's latest run succeeded and left Claude at 21 of 22 (29 of 30 since 2026-10-19); its reviews stayed with it
         os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
         ledger = {"last": {"t": self.T, "five_hour": {"pct": 30.0, "key": "K", "at": self.T + 3600},
                            "week": {"pct": 50.0, "key": "W", "at": self.T + 86400}},
-                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 40.0}}, "active": {}, "samples": {}}
+                  "studio": {"five_hour": {"K": 29.0}, "week": {"W": 40.0}}, "active": {}, "samples": {}}
         with open(os.path.join(clerk_mod.QUOTA_DIR, "claude.json"), "w") as f:
             json.dump(ledger, f)
         self.review("r1")

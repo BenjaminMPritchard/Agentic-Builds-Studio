@@ -1,7 +1,8 @@
 {
   "_comment": "Studio usage caps: Benjamin's requirement (codex-claude-paperclip-model-routing-research.md sections 2-3). Percentage points of each provider's own windows. Changing a cap needs Benjamin's approval.",
   "claude": {
-    "five_hour_cap": 22,
+    "five_hour_cap": 30,
+    "_five_hour_comment": "Benjamin, 2026-10-19: the 5-hour cap matches the 80-point weekly cap. A week holds 33.6 five-hour windows, and a Claude 5-hour point costs about 0.08 week points (12.5:1, measured from studio runs), so 80 / 33.6 / 0.08 = about 30. At the old 22, nonstop work could use only about 56 of the 80.",
     "weekly_cap": 80,
     "personal_weekly": 20,
     "margin": {"five_hour": 1, "week": 0.5},
