@@ -195,7 +195,8 @@ def over_cap(ledger, reading, policy, now, headroom=0, agent=None, token=None, e
 
     With the run's `token` and the seconds until the next check (`every`), a run asked to wrap up (headroom > 0)
     is asked one check early when, at its own pace since admission, it would pass the wrap-up line before then.
-    2026-10-18: a Builder-2 run used 25 points in 10 minutes; checks two minutes apart saw it first at 23 of 18."""
+    2026-10-18: a Builder-2 run used 25 points in 10 minutes; checks two minutes apart saw it first at 23 of 18.
+    With policy["week_pace"], a run is also asked to wrap up once today's share of the week is spent."""
     observe(ledger, reading, now)
     s = status(ledger, reading, policy)
     run = ledger["active"].get(token) if token else None
@@ -211,6 +212,17 @@ def over_cap(ledger, reading, policy, now, headroom=0, agent=None, token=None, e
             if used + ahead >= cap - headroom:
                 out.append(f"studio {label} use {used:g} of the {text}, and this run's pace adds about "
                            f"{ahead:.0f} more by the next check ({resets})")
+    # Today's share of the week (week_pace) only ever asks for a wrap-up, never a stop without one. 2026-10-19:
+    # admission checked only that the smallest run fitted, so two Codex runs spent 7.8 of a 3.6-point day.
+    pace = week_pace(ledger, reading, policy, now, update=False) if headroom > 0 else None
+    if pace:
+        spent, budget, _ = pace
+        ahead = run["used"]["week"] / max(60.0, now - run["t"]) * every if run and every > 0 else 0.0
+        if spent >= budget:
+            out.append(f"studio weekly pace: used {spent:g} of today's {budget:g}")
+        elif spent + ahead >= budget:
+            out.append(f"studio weekly pace: used {spent:g} of today's {budget:g}, and this run's pace adds about "
+                       f"{ahead:.1f} more by the next check")
     return out
 
 

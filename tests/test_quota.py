@@ -321,6 +321,21 @@ class Controller(unittest.TestCase):
         self.assertAlmostEqual(self.l["pace"]["budget"], round(29.7 / ((wk_at - self.t - 120 - quota.DAY) / quota.DAY), 3))
         self.assertIsNone(quota.week_pace(self.l, r(30, 69.8), POLICY, self.t))  # off unless the policy asks
 
+    def test_a_run_is_asked_to_wrap_up_when_the_day_is_spent(self):
+        # 2026-10-19: two Codex runs admitted under the day's 3.6 points spent 7.8 between them.
+        policy = {**POLICY, "week_pace": True, "five_hour_cap": 100, "weekly_cap": 100}
+        wk_at = self.t + 60 + 4 * quota.DAY
+        r = lambda s, w: {**reading(s, w), "week": {"pct": w, "key": "W", "at": wk_at}}
+        tok, why = quota.admit(self.l, r(0, 60), "rec", 1, policy, self.t + 60, pid_alive=alive)
+        self.assertTrue(tok, why)  # today's share: 9.875
+        self.assertEqual(quota.over_cap(self.l, r(10, 66), policy, self.t + 360, headroom=2, agent="rec",
+                                        token=tok, every=60), [])  # 6 in 5 minutes, 1.2 more by the next check
+        why = quota.over_cap(self.l, r(15, 69), policy, self.t + 660, headroom=2, agent="rec", token=tok, every=60)
+        self.assertIn("this run's pace adds about 0.9 more by the next check", why[0])  # 9 + 0.9 >= 9.875
+        why = quota.over_cap(self.l, r(16, 70), policy, self.t + 720, headroom=2, agent="rec", token=tok, every=60)
+        self.assertEqual(why, ["studio weekly pace: used 10 of today's 9.875"])
+        self.assertEqual(quota.over_cap(self.l, r(16, 70), policy, self.t + 720, agent="rec", token=tok), [])  # no stop
+
     def test_release_without_a_reading_keeps_the_run_counted(self):
         tok, _ = self.admit(reading(10, 10))
         quota.release(self.l, tok, None, self.t)
