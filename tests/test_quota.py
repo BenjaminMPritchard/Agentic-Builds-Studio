@@ -377,7 +377,7 @@ class Controller(unittest.TestCase):
             json.dump(quota.override("five_hour", 100, until=1000), f)
         policy_file = os.path.join(ROOT, "policy", "quota.json")
         self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["five_hour_cap"], 100.0)
-        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["five_hour_cap"], 22)  # ended
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["five_hour_cap"], 30)  # ended
         self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 80)  # untouched
         with self.assertRaises(QuotaError):
             quota.override("five_hour", 120, until=1000)
@@ -462,12 +462,12 @@ class Cli(unittest.TestCase):
         # 2026-10-01: admission passed at 0% and one Codex run then took the whole five-hour window.
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "30"])
-        self.usage(40 + 23, 12)  # 23 points of studio use since admission; the Claude cap is 22
+        self.usage(40 + 31, 12)  # 31 points of studio use since admission; the Claude cap is 30
         env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0", "STUDIO_QUOTA_CHECK": "0.2"}
         rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
                                 "--after-pid", str(run.pid), token], env=env, stderr=subprocess.PIPE, text=True)
         self.assertEqual(run.wait(timeout=10), -15)  # SIGTERM
-        self.assertIn("of the 18-point cap (22, less 4 kept for the Director)", rel.communicate(timeout=10)[1])
+        self.assertIn("of the 26-point cap (30, less 4 kept for the Director)", rel.communicate(timeout=10)[1])
         stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
         self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
 
@@ -493,12 +493,12 @@ class Cli(unittest.TestCase):
         # 2026-10-02, Benjamin: the cap should ask the agent to pause; a graceful stop is the point of it.
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "2"])
-        self.usage(40 + 21, 12)  # 21 of the 22-point cap: inside it, but within the wrap-up headroom
+        self.usage(40 + 29, 12)  # 29 of the 30-point cap: inside it, but within the wrap-up headroom
         rel = self.release(run, token, wrap_minutes=10)
         deadline = time.time() + 5
         while not os.path.exists(self.flag) and time.time() < deadline:
             time.sleep(0.05)
-        self.assertIn("21 of the 18-point cap", open(self.flag).read())
+        self.assertIn("29 of the 26-point cap", open(self.flag).read())
         self.assertIsNone(run.poll())  # asked, not stopped
         self.assertEqual(run.wait(timeout=10), 0)  # it ended by itself
         rel.communicate(timeout=10)
@@ -508,7 +508,7 @@ class Cli(unittest.TestCase):
     def test_a_run_that_ignores_the_request_is_stopped_after_the_grace_time(self):
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "30"])
-        self.usage(40 + 23, 12)
+        self.usage(40 + 31, 12)
         rel = self.release(run, token, wrap_minutes=0.01)  # 0.6 seconds
         self.assertEqual(run.wait(timeout=10), -15)
         self.assertIn("after being asked to wrap up", rel.communicate(timeout=10)[1])
@@ -518,7 +518,7 @@ class Cli(unittest.TestCase):
         # Benjamin, 2026-10-15: Codex-Principal used 81 points of a 60-point window inside its 10-minute grace.
         token = self.q("admit", "--provider", "claude", "--agent", "cp", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "30"])
-        self.usage(40 + 23, 12)
+        self.usage(40 + 31, 12)
         rel = self.release(run, token, wrap_minutes=10, no_grace=["cp"])
         self.assertEqual(run.wait(timeout=10), -15)
         rel.communicate(timeout=10)
