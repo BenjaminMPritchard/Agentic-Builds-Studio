@@ -7,7 +7,7 @@ same moment is counted against the studio, never the other way round). Readings 
 and when it ends, so the set of active runs is constant between consecutive readings.
 
 Before a run starts, its estimated cost is reserved and every check must pass:
-  studio 5-hour used + reserved + this job + margin <= five_hour_cap   (policy/quota.json: 22 Claude, 60 Codex)
+  studio 5-hour used + reserved + this job + margin <= five_hour_cap   (policy/quota.json: 30 Claude, 60 Codex)
   studio weekly used + reserved + this job + margin <= weekly_cap      (80 Claude, 100 Codex)
   account 5-hour used + reserved + this job + margin <= 100
   account weekly used + reserved + this job + margin + personal allowance still unused <= 100
@@ -66,7 +66,10 @@ def parse_reset(text, now):
 
 
 def same_window(prev, cur, now=None):
-    if prev["key"] == cur["key"]:
+    """Whether two readings may be one window; observe() still treats a falling reading as a new one. A reading
+    with no reset time (Claude shows none at a window's start) is not evidence of a new window. 2026-10-20: the key
+    went between "" and "Oct 20, 8:10am" from 03:12, and each change counted the whole account as new use."""
+    if prev["key"] == cur["key"] or not prev["key"] or not cur["key"]:
         return True
     now = time.time() if now is None else now
     # Readings stored before reset times were parsed carry only the text: parse it now.
@@ -166,7 +169,9 @@ def observe(ledger, reading, now):
             studio = ledger["studio"][w]
             studio[cur["key"]] = round(studio.get(cur["key"], 0.0) + delta, 3)
             for run in active.values():
-                run["used"][w] = round(run["used"][w] + delta, 3)
+                run["used"][w] = round(run["used"][w] + delta, 3)  # the bound: all use while the run was active
+                share = run.setdefault("share", {x: 0.0 for x in WINDOWS})
+                share[w] = round(share[w] + delta / len(active), 3)  # its part of that: split between active runs
         ledger["studio"][w] = {k: v for k, v in ledger["studio"][w].items() if k == cur["key"]}
     ledger["last"] = {"t": now, **{w: reading[w] for w in WINDOWS}}
 
@@ -304,7 +309,11 @@ def estimate(ledger, agent, policy):
 
 
 def status(ledger, reading, policy):
-    reserved = {w: sum(max(0.0, r["reserve"][w] - r["used"][w]) for r in ledger["active"].values()) for w in WINDOWS}
+    # A run's reservation shrinks by its share of the use, not by all use while it was active. 2026-10-20: with
+    # several runs active each one's "used" grew by everyone's use, the reservations all went to 0, and a third
+    # and fourth run started into a window already full: studio use reached 45 of a 26-point cap.
+    reserved = {w: sum(max(0.0, r["reserve"][w] - r.get("share", r["used"])[w]) for r in ledger["active"].values())
+                for w in WINDOWS}
     studio = {w: ledger["studio"][w].get(reading[w]["key"], 0.0) for w in WINDOWS}
     return {"account": {w: reading[w]["pct"] for w in WINDOWS}, "studio": studio, "reserved": reserved,
             "resets": {w: reading[w]["key"] for w in WINDOWS}, "caps": {"five_hour": policy["five_hour_cap"],
