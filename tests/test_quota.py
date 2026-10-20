@@ -138,6 +138,30 @@ class Controller(unittest.TestCase):
         self.assertIsNone(tok)  # 6 + 3 reserved + 3 + 1 > 12: the full estimate counts while a run is active
         self.assertTrue(first)
 
+    def test_use_while_runs_overlap_shrinks_each_reservation_by_its_share(self):
+        # 2026-10-20: each active run's reservation shrank by all the use while it ran, so runs using a few points
+        # between them held nothing back, and further runs started into a window that then reached 45 of 26.
+        runs = [self.admit(reading(0, 0), pid=p)[0] for p in (1, 2, 3)]
+        self.assertTrue(all(runs))
+        quota.observe(self.l, reading(3, 0), self.t)
+        self.assertEqual(quota.status(self.l, reading(3, 0), POLICY)["reserved"]["five_hour"], 6.0)  # 3 x (3 - 1)
+        self.assertEqual(self.l["active"][runs[0]]["used"]["five_hour"], 3.0)  # the record keeps the bound
+        tok, why = self.admit(reading(3, 0), pid=4)
+        self.assertIsNone(tok)  # 3 used + 6 reserved + 3 + 1 > 12; the old rule saw 3 + 0 + 3 + 1
+        self.assertIn("reserved 6", why[0])
+
+    def test_a_reading_with_no_reset_time_is_not_a_new_window(self):
+        # 2026-10-20: at a window's start /usage gave no reset time, then gave one, then none again; each change
+        # counted the whole account as new use, so runs were charged 87 points in eight minutes.
+        def no_reset(s):
+            return quota.parse_usage(f"Current session: {s}% used\nCurrent week (all models): 10% used · resets "
+                                     "Oct 5, 9am (Europe/London)\n", now=NOW)
+        tok, _ = self.admit(no_reset(2), pid=1)
+        for r in (reading(4, 10), no_reset(5), reading(6, 10)):
+            quota.observe(self.l, r, self.t)
+        self.assertEqual(self.l["active"][tok]["used"]["five_hour"], 4.0)  # 2 to 6, not 4 + 5 + 6
+        self.assertEqual(quota.status(self.l, reading(6, 10), POLICY)["studio"]["five_hour"], 4.0)
+
     def test_exactly_at_the_cap_is_allowed(self):
         tok, _ = self.admit(reading(10, 10))
         quota.release(self.l, tok, reading(18, 10), self.t)
