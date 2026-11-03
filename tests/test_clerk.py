@@ -1,4 +1,5 @@
 import json, os, tempfile, unittest
+from unittest import mock
 from tests.fakes import FakePaperclip
 from lib.paperclip import Paperclip
 from lib.clerk import Clerk
@@ -363,6 +364,37 @@ class ClerkTests(unittest.TestCase):
         c, calls = self.gate_clerk(result=(False, ["could not collect evidence: OSError: x"], False)); c.tick()
         c, calls = self.gate_clerk(); c.tick()
         self.assertEqual(len(calls), 1)
+
+    def skipped(self, **kw):
+        # Paperclip 2026.1023.0 skips the stage when the only reviewer is the agent marking it done (AGE-110, #122).
+        self.approved(executionState={"status": "completed", "lastDecisionOutcome": None, "completedStageIds": ["s1"]},
+                      **kw)
+
+    def test_a_skipped_review_is_not_merged_and_benjamin_is_told_once_per_head(self):
+        self.skipped(); self.green()
+        self.fp.add(id="n", title="AGE-111: Next step", status="blocked", blockedByIssueIds=["t"])
+        sent = []
+        with mock.patch.object(clerk_mod.notify, "send", lambda *a, **kw: kw.get("phone") and sent.append(kw.get("title"))):
+            c, calls = self.gate_clerk(); c.tick()
+            self.assertEqual(calls, [])
+            self.assertEqual(sent, ["PR #9 is waiting for your merge"])
+            self.assertTrue(any("PR #9" in b for b in c.needs_board))
+            c, calls = self.gate_clerk(); c.tick()
+            self.assertEqual(len(sent), 1)  # same head: told once
+            self.green(sha="h2")
+            c, calls = self.gate_clerk(); c.tick()
+            self.assertEqual(len(sent), 2)
+            self.assertEqual(calls, [])
+
+    def test_a_skipped_review_with_red_checks_waits(self):
+        self.skipped(); self.green(checks=[{"conclusion": "FAILURE"}])
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual((calls, c.needs_board), ([], []))
+
+    def test_a_pending_review_is_not_called_skipped(self):
+        self.approved(executionState={"status": "pending", "completedStageIds": []}); self.green()
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(c.needs_board, [])
 
     def test_a_dry_run_never_asks_the_gate(self):
         self.approved(); self.green()
