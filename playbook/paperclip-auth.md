@@ -129,4 +129,6 @@ can read it, and sends no run header (a user is not a run).
   tools:admin, ...), and inserts any missing ones at every start. The viewer role cannot wake agents or change
   tasks, so the Clerk stays an operator and `bin/paperclip-trim-grants` (run by `paperclip.service` after each
   start) deletes every Clerk grant except `tasks:assign`. Its output is in `journalctl -u paperclip`.
-- The unit now pins the Paperclip version. Unpinned, each restart ran the newest npm release.
+- The unit now runs a fixed installed copy of Paperclip (see the comment in `deploy/paperclip.service`). Unpinned, each
+  restart ran the newest npm release; `npx paperclipai@VERSION` resolved a new dependency tree whose embedded
+  Postgres would not start here.
