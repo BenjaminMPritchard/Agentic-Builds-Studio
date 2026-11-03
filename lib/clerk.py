@@ -208,14 +208,18 @@ class Clerk:
             if "executionPolicy" not in i:  # the issue list leaves it out; without it no task ever reached the gate
                 i = self.pc.get_issue(i["id"]) or i
             stages = (i.get("executionPolicy") or {}).get("stages")
-            if not stages or not merge_gate.paperclip_review_complete(i):
+            if not stages:
                 continue
             try:
-                self.gate_issue(i)
+                if merge_gate.paperclip_review_complete(i):
+                    self.gate_issue(i)
+                elif merge_gate.paperclip_review_skipped(i):
+                    self.review_skipped(i, issues)
             except Exception as e:  # one unreadable issue must not hide the others
                 self.log("issue_error", step="merge_approved", task=i["id"], error=str(e)[:300])
 
-    def gate_issue(self, issue):
+    def open_green_prs(self, issue):
+        """(repo, number, pr) for each open GitHub PR of the issue whose checks have all passed."""
         for w in self.pc.work_products(issue["id"]) or []:
             m = merge_gate.PR_URL.match(w.get("url") or "")
             if not (m and w.get("type") == "pull_request" and w.get("provider") == "github"):
@@ -227,6 +231,29 @@ class Clerk:
                     (c.get("conclusion") or c.get("state")) in RED or not (c.get("conclusion") or c.get("state"))
                     or (c.get("status") or "") in ("IN_PROGRESS", "QUEUED") for c in checks):
                 continue
+            yield repo, num, pr
+
+    def review_skipped(self, issue, issues):
+        """Tell Benjamin, once per head, of a green PR whose task Paperclip closed without a review approval. The
+        merge gate will not merge it and no agent will act on it, so it waits for him (AGE-110, PR #122: six hours
+        on 2026-11-03 with nobody told)."""
+        for repo, num, pr in self.open_green_prs(issue):
+            key = f"review-skipped:{issue['id']}:{repo}#{num}:{pr.get('headRefOid')}"
+            if self.handled(key):
+                continue
+            title, text = phone.merge_notice(num, phone.plain(issue.get("title") or ""),
+                                             self.waiting_on({issue["id"]}, issues))
+            text += ("\n\nPaperclip closed the task without a review approval, so the merge gate left it. "
+                     "Check the PR's review before you merge.")
+            self.ring(key, text, title, f"https://github.com/{repo}/pull/{num}")
+
+    def waiting_on(self, ids, issues):
+        """Plain titles of the open tasks blocked by any of `ids`."""
+        return list(dict.fromkeys(phone.plain(i["title"]) for i in issues if i.get("status") not in ("done", "cancelled")
+                                  and i["id"] not in ids and ids & set(i.get("blockedByIssueIds") or [])))
+
+    def gate_issue(self, issue):
+        for repo, num, pr in self.open_green_prs(issue):
             key = f"gate:{issue['id']}:{repo}#{num}:{pr.get('headRefOid')}"
             if self.handled(key):
                 continue
@@ -845,10 +872,7 @@ class Clerk:
             if (full.get("executionPolicy") or {}).get("stages") and not merge_gate.paperclip_review_complete(full):
                 return
         what = phone.plain(work[0]["title"]) if work else phone.plain(pr.get("title") or "")
-        ids = {i["id"] for i in linked}
-        blocked = [phone.plain(i["title"]) for i in issues if i.get("status") not in ("done", "cancelled")
-                   and i["id"] not in ids and ids & set(i.get("blockedByIssueIds") or [])]
-        title, text = phone.merge_notice(pr["number"], what, list(dict.fromkeys(blocked)))
+        title, text = phone.merge_notice(pr["number"], what, self.waiting_on({i["id"] for i in linked}, issues))
         self.ring(key, text, title, url)
 
     def ring(self, key, text, title, click=None):

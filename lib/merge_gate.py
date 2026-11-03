@@ -177,6 +177,20 @@ def paperclip_review_complete(issue):
         and all(isinstance(s, dict) and s.get("id") in done for s in stages)
 
 
+def paperclip_review_skipped(issue):
+    """Every review stage is marked complete, but no review approved it. Paperclip 2026.1023.0 does this when the
+    only reviewer is also the agent that marks the task done: it skips the stage instead of asking anyone
+    (canAutoSkipPendingStage). AGE-110, 2026-11-03: the merge gate rightly refused PR #122 and nobody was told."""
+    policy = issue.get("executionPolicy")
+    stages = policy.get("stages") if isinstance(policy, dict) else None
+    if not isinstance(stages, list) or not stages:
+        return False
+    state = issue.get("executionState") or {}
+    done = set(state.get("completedStageIds") or [])
+    return state.get("status") == "completed" and state.get("lastDecisionOutcome") != "approved" \
+        and all(isinstance(s, dict) and s.get("id") in done for s in stages)
+
+
 def evaluate(policy, request, ev):
     """Reasons to refuse. Empty list = merge allowed. `request` = {issue_id, repo, pr, head_sha}."""
     reasons = []
