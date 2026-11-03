@@ -323,6 +323,15 @@ class ClerkTests(unittest.TestCase):
         c, calls = self.gate_clerk(); c.tick()
         self.assertEqual(len(calls), 1)
 
+    def test_the_review_policy_is_read_from_the_issue_when_the_list_sends_null(self):
+        # 2026-11-03: Paperclip 2026.1023.0 lists executionPolicy and executionState as null, so #120 and #121
+        # (approved, green) never reached the gate, and a skipped review was never told.
+        self.approved(); self.green()
+        full = self.pc.list_issues
+        self.pc.list_issues = lambda cid: [{**i, "executionPolicy": None, "executionState": None} for i in full(cid)]
+        c, calls = self.gate_clerk(); c.tick()
+        self.assertEqual(len(calls), 1)
+
     def test_the_gate_is_not_asked_without_an_approved_review(self):
         self.approved(executionState={"status": "pending", "completedStageIds": []}); self.green()
         c, calls = self.gate_clerk(); c.tick()
