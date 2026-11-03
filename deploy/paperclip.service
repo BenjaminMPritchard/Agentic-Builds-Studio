@@ -16,7 +16,14 @@ Group=paperclip
 Environment=HOME=/home/paperclip
 Environment=PATH=/home/paperclip/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/paperclip
-ExecStart=/usr/bin/env npx --yes paperclipai run
+# Pinned (2026-11-03). Unpinned, every restart ran the newest npm release: on 2026-11-01 that applied 28
+# migrations unreviewed and widened the operator role. Upgrade deliberately: read the release notes, back up
+# the database, change the version here, reinstall the unit, restart, check /api/health.
+ExecStart=/usr/bin/env npx --yes paperclipai@2026.1023.0 run
+# After each start: keep the Studio Clerk to tasks:assign (lib/clerk_grants.py). "-": a failure is logged and
+# never stops Paperclip. It waits up to 240s for health, so the start timeout allows for that and npx.
+ExecStartPost=-/srv/studio/company/bin/paperclip-trim-grants
+TimeoutStartSec=420
 Restart=on-failure
 RestartSec=10
 # Loopback only (local_trusted). Reach it over Tailscale; never expose 3100 to the internet.

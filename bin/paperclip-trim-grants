@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Run by paperclip.service after each start (ExecStartPost, as paperclip): wait for Paperclip to be healthy,
+then remove the Studio Clerk's grants other than tasks:assign. See lib/clerk_grants.py.
+
+Exit 0 when done (or nothing to remove), 1 when Paperclip never became healthy or psql failed. The unit runs it
+with a leading "-", so a failure is logged and never stops Paperclip.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import clerk_grants  # noqa: E402
+
+
+def main():
+    if not clerk_grants.wait_healthy():
+        print("paperclip-trim-grants: Paperclip not healthy after 240s; Clerk grants not checked", file=sys.stderr)
+        return 1
+    try:
+        removed = clerk_grants.trim()
+    except Exception as e:
+        print(f"paperclip-trim-grants: {e}", file=sys.stderr)
+        return 1
+    print(f"paperclip-trim-grants: removed {', '.join(removed)}" if removed
+          else "paperclip-trim-grants: Clerk has only tasks:assign")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

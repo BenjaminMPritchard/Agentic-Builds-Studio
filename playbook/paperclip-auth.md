@@ -117,3 +117,16 @@ can read it, and sends no run header (a user is not a run).
    ```
 6. Claude checks the key is the Studio Clerk with the operator role, runs one dry-run tick, then turns the
    Clerk live. Close the private window.
+
+## Keys expire; the operator role widened (2026-11-03)
+
+- Board API keys, the Clerk's included, expire 30 days after they are made (`BOARD_API_KEY_TTL_MS` in the
+  server). Every call then gets 401 `Agent token did not verify`, even `/api/health`, and the Clerk's ticks fail.
+  The first keys expired on 2026-10-29/30. Make new ones with step 4 above and step 5 of the Clerk's section; run
+  the Clerk's commands from `/tmp` (`cd /tmp &&`), since `npx` as `paperclip` cannot read Benjamin's home. The
+  keys made on 2026-11-03 expire about 2026-12-03.
+- Paperclip 2026.1023.0 gives the operator role fourteen grants (agents:create, agents:configure, users:invite,
+  tools:admin, ...), and inserts any missing ones at every start. The viewer role cannot wake agents or change
+  tasks, so the Clerk stays an operator and `bin/paperclip-trim-grants` (run by `paperclip.service` after each
+  start) deletes every Clerk grant except `tasks:assign`. Its output is in `journalctl -u paperclip`.
+- The unit now pins the Paperclip version. Unpinned, each restart ran the newest npm release.
