@@ -205,8 +205,8 @@ class Clerk:
             updated = merge_gate._when(i.get("updatedAt"))
             if updated is None or updated.timestamp() < cutoff:
                 continue
-            if "executionPolicy" not in i:  # the issue list leaves it out; without it no task ever reached the gate
-                i = self.pc.get_issue(i["id"]) or i
+            if not i.get("executionPolicy"):  # the issue list leaves it out or sends null; without it no task
+                i = self.pc.get_issue(i["id"]) or i  # ever reaches the gate (2026-10-12; null since 2026.1023.0)
             stages = (i.get("executionPolicy") or {}).get("stages")
             if not stages:
                 continue
