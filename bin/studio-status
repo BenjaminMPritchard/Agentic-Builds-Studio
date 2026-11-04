@@ -83,6 +83,8 @@ def report(now, data=DATA, up=True):
     c = snap.get("counts") or {}
     work = ", ".join(f"{c[k]} {label}" for k, label in (("in_progress", "in progress"), ("in_review", "in review"),
                                                          ("todo", "to do")) if c.get(k))
+    if snap.get("queued"):
+        work = (work + ", " if work else "") + f"{snap['queued']} waiting for earlier tasks"
     lines.append(f"Work: {work or 'nothing open'}.")
     if snap.get("usage"):
         lines.append(snap["usage"].split(";")[0].replace("Claude studio use", "Claude: studio used") + ".")

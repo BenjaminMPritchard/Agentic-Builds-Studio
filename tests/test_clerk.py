@@ -399,13 +399,15 @@ class ClerkTests(unittest.TestCase):
         # 2026-11-04: bin/studio-status reads this; the phone notice goes once, the waiting stays listed.
         self.skipped(); self.green()
         self.fp.add(id="b", title="AGE-108: Blocked step", status="blocked")
+        self.fp.add(id="n", title="AGE-109: Next step", status="blocked", blockedByIssueIds=["b"])
         with mock.patch.object(clerk_mod.notify, "send", lambda *a, **kw: None):
             for _ in range(2):
                 c, _ = self.gate_clerk(); c.tick()
                 snap = c.state["status"]
                 self.assertEqual([w for w in snap["waiting"] if w.startswith("merge PR #9")], [snap["waiting"][0]])
                 self.assertEqual([b["title"] for b in snap["blocked"]], ["Blocked step"])  # no codes on the phone
-                self.assertEqual(snap["counts"].get("blocked"), 1)
+                self.assertEqual(snap["queued"], 1)  # "Next step" waits for an open task: in order, not stuck
+                self.assertEqual(snap["counts"].get("blocked"), 2)
 
     def test_a_skipped_review_with_red_checks_waits(self):
         self.skipped(); self.green(checks=[{"conclusion": "FAILURE"}])
@@ -1070,6 +1072,38 @@ class DirectorWakesOnInbox(unittest.TestCase):
         self.assertEqual(self.fp.wakes[0][0], "dir")
         self.assertEqual(self.fp.wakes[0][1]["payload"], {"issueId": "inbox"})
         self.assertEqual((self.fp.issues["inbox"]["status"], self.fp.issues["inbox"]["blockedByIssueIds"]), ("todo", []))
+
+    def test_benjamins_items_alone_do_not_wake_the_director(self):
+        # 2026-11-04: merge-ready PRs and human cards are on his phone; the Director can do nothing with them.
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir")
+        c.needs_board = ["PR #9 is waiting for your merge"]
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues))
+        self.assertEqual(self.fp.wakes, [])
+
+    def test_the_director_is_woken_at_most_once_an_hour_and_nothing_is_lost(self):
+        t = [1_800_000_000]
+        clerk = lambda: Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], director_id="dir", now=lambda: t[0])
+        c = clerk(); c.needs_director = ["AGE-63: stuck"]
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues)); c.save()
+        self.assertEqual(len(self.fp.wakes), 1)
+        t[0] += 660
+        c = clerk(); c.needs_director = ["AGE-64: stuck"]
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues)); c.save()
+        self.assertEqual(len(self.fp.wakes), 1)  # 11 minutes later: kept, not woken
+        t[0] += 660
+        c = clerk()  # nothing new this tick, but AGE-64 is still listed
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues)); c.save()
+        self.assertIn("- AGE-64: stuck", self.fp.docs[("inbox", "digest")])
+        t[0] += 3600
+        c = clerk()
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues)); c.save()
+        self.assertEqual(len(self.fp.wakes), 2)  # an hour on: woken for what was kept
+        self.assertIn("- AGE-64: stuck", self.fp.docs[("inbox", "digest")])
+        t[0] += 3600
+        c = clerk()
+        c.digest(list(self.fp.issues.values()), dict(self.fp.issues)); c.save()
+        self.assertEqual(len(self.fp.wakes), 2)  # told once: the list is cleared after the wake
+        self.assertIn("## Needs the Director\n- nothing", self.fp.docs[("inbox", "digest")])
 
     def test_a_capped_director_is_woken_on_its_inbox(self):
         t = 1_759_400_000

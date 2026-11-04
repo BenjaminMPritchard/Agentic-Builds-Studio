@@ -33,6 +33,7 @@ PR_NUMBER = re.compile(r"(?:PR\s*|pull/|(?<![\w/])#)(\d+)\b")  # "PR #102", "#10
 STUCK_AFTER = 6 * 3600  # seconds a blocked task may sit untouched, with nothing open blocking it, before the Director hears
 UNBLOCK_GRACE = 2 * 60  # seconds after the window resets, so the new reading is in
 DIGEST_MAX_CHARS = 6000  # about 1,500 tokens
+DIRECTOR_WAKE_GAP = 3600  # Benjamin, 2026-11-04: the Clerk wakes the Director at most once an hour; items wait
 RECEIPT_DAYS = 60
 GATE_LOOKBACK_DAYS = 14
 QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
@@ -941,8 +942,15 @@ class Clerk:
 
     # ---- 6: digest ----------------------------------------------------------------------
     def digest(self, issues, by_id):
-        lines = ["# Digest", f"_{time.strftime('%Y-%m-%d %H:%M', time.localtime(self.now()))}_", ""]
-        for h, items in (("Needs you (Board)", self.needs_board), ("Needs the Director", self.needs_director),
+        # Benjamin, 2026-11-04 ("cut director wakes"): the Clerk's wakes were 12 of the Director's 52 runs in the
+        # week from Nov 2 and 5 of its 13 points. A wake is now for the Director's own items only (Benjamin's are
+        # on his phone; the Director cannot merge or answer them), at most once an hour; items that come up in
+        # between are kept and listed until the next wake.
+        now = self.now()
+        carried = self.state.get("director_pending") or []
+        pending = list(dict.fromkeys(carried + self.needs_director))[-30:]
+        lines = ["# Digest", f"_{time.strftime('%Y-%m-%d %H:%M', time.localtime(now))}_", ""]
+        for h, items in (("Needs you (Board)", self.needs_board), ("Needs the Director", pending),
                          ("Notes", self.notes)):
             lines += [f"## {h}"] + ([f"- {x}" for x in items] or ["- nothing"]) + [""]
         counts = {}
@@ -959,14 +967,20 @@ class Clerk:
             open(os.path.join(self.data, "digest.md"), "w").write(text)
         else:
             self.pc.put_document(inbox["id"], "digest", text)
-        wake = bool(self.needs_director or self.needs_board)
+        wake = bool(pending)
         # "on-inbox": wakes before 2026-10-15 ran on no task and could not write, so the same list wakes it once more
-        h = hashlib.sha256(("on-inbox" + str(self.needs_director) + str(self.needs_board)).encode()).hexdigest()
-        if wake and self.director and h != self.state.get("last_wake_hash"):
+        h = hashlib.sha256(("on-inbox" + str(pending)).encode()).hexdigest()
+        due = now - self.state.get("last_director_wake", 0) >= DIRECTOR_WAKE_GAP
+        woke = False
+        if wake and self.director and h != self.state.get("last_wake_hash") and due:
             if not self.dry:
                 self.state["last_wake_hash"] = h
+                self.state["last_director_wake"] = int(now)
             self.act("wake-director", self.pc.wake_agent, self.director, True, "clerk", self.director_inbox(issues))
-        self.log("digest", wake=wake, dry=self.dry)
+            woke = True
+        if not self.dry:
+            self.state["director_pending"] = [] if woke or not wake else pending
+        self.log("digest", wake=wake, woke=woke, dry=self.dry)
 
     def status_snapshot(self, issues, counts):
         """What bin/studio-status reports (Benjamin, 2026-11-04: a scheduled script, not an agent, saying the Studio
@@ -976,13 +990,21 @@ class Clerk:
         except Exception:
             agents = []
         names = {a.get("id"): a.get("name") for a in agents}
+        by_id = {i["id"]: i for i in issues}
+
+        def waits_on_open_work(i):  # blocked only until an earlier task finishes: in order, not stuck (2026-11-04)
+            ids = {b.get("id") for b in i.get("blockedBy") or []} | set(i.get("blockedByIssueIds") or [])
+            stated = {b.get("id"): b.get("status") for b in i.get("blockedBy") or []}
+            return any((stated.get(b) or (by_id.get(b) or {}).get("status")) not in ("done", "cancelled") for b in ids)
+
+        parked = [i for i in issues if i.get("status") == "blocked" and i.get("title") != "Director inbox"]
         blocked = [{"id": i.get("identifier", i["id"]), "title": phone.plain(i.get("title") or ""), "since": i.get("updatedAt"),
-                    "agent": names.get(i.get("assigneeAgentId"))}
-                   for i in issues if i.get("status") == "blocked" and i.get("title") != "Director inbox"]
+                    "agent": names.get(i.get("assigneeAgentId"))} for i in parked if not waits_on_open_work(i)]
         down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason")}
                 for a in agents if a.get("status") in ("paused", "error")]
         codex = self.week_left("codex")
         return {"t": int(self.now()), "waiting": list(dict.fromkeys(self.waiting)), "blocked": blocked,
+                "queued": len(parked) - len(blocked),
                 "agents": down, "counts": counts, "usage": self.state.get("usage"),
                 "codex_week": {"left": round(codex[0], 1), "days": round(codex[1], 1)} if codex else None,
                 "errors": [n for n in self.notes if n.startswith("clerk step ")]}
