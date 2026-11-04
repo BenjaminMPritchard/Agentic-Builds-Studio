@@ -73,7 +73,12 @@ def report(now, data=DATA, up=True):
         since = _epoch(b.get("since"))
         who = f", {b['agent']}" if b.get("agent") else ""
         stuck.append(f"{b['title'][:70]} (blocked {_ago(now - since) if since else '?'}{who})")  # no AGE codes on the phone
-    stuck += [f"{a['name']} is {a['status']}" + (f" ({a['why']})" if a.get("why") else "") for a in snap.get("agents") or []]
+    for a in snap.get("agents") or []:
+        line = f"{a['name']} is {a['status']}" + (f" ({a['why']})" if a.get("why") else "")
+        if a.get("status") == "error":
+            last = _epoch(a.get("last_run"))
+            line += f": its last run was {_ago(now - last)} ago, so reset it in Paperclip" if last else ": reset it in Paperclip"
+        stuck.append(line)
     stuck += snap.get("errors") or []
     lines = []
     if waiting:
@@ -86,6 +91,8 @@ def report(now, data=DATA, up=True):
     if snap.get("queued"):
         work = (work + ", " if work else "") + f"{snap['queued']} waiting for earlier tasks"
     lines.append(f"Work: {work or 'nothing open'}.")
+    if snap.get("capped"):
+        lines.append(f"Waiting for the usage window: {', '.join(snap['capped'])}.")
     if snap.get("usage"):
         lines.append(snap["usage"].split(";")[0].replace("Claude studio use", "Claude: studio used") + ".")
     if snap.get("codex_week"):

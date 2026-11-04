@@ -57,7 +57,17 @@ class Status(unittest.TestCase):
         self.assertEqual(title, "Studio is stuck")
         self.assertIn("- Viewing lifecycle (blocked 4 h, Builder-2)", text)
         self.assertNotIn("AGE-", text)
-        self.assertIn("- Codex-Builder is error", text)
+        self.assertIn("- Codex-Builder is error: reset it in Paperclip", text)
+
+    def test_capped_agents_are_waiting_not_stuck(self):
+        self.snap(capped=["Builder-2", "Director"],
+                  agents=[{"name": "Codex-Scout", "status": "error", "why": None, "last_run": "2026-10-19T11:23:00Z"}])
+        title, text = self.report()
+        self.assertIn("Waiting for the usage window: Builder-2, Director.", text)
+        self.assertIn("- Codex-Scout is error: its last run was 16 days ago, so reset it in Paperclip", text)
+        self.assertNotIn("Builder-2 is", text)
+        self.snap(capped=["Builder-2"])
+        self.assertEqual(self.report()[0], "Studio: all good")
 
     def test_what_needs_benjamin_comes_first(self):
         self.snap(waiting=[f"merge PR #{n}: thing {n}" for n in range(7)],
