@@ -1,0 +1,9 @@
+[Unit]
+Description=Send the Studio status at 08:00 and 18:00 UK time
+
+[Timer]
+OnCalendar=*-*-* 08,18:00:00 Europe/London
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -27,13 +27,13 @@ reasoner. Spend strong models on judgement. Hand the doing to the cheapest agent
 | --- | --- | --- | --- |
 | Monitoring, counts, file inventories, check status | Clerk (scripts) | model only for a new anomaly | script output |
 | Summaries, exact quotes, classification, dedupe, inbox triage | Worker (local Qwen, `qwen-job`) | Scout / Codex-Scout | the job's own checks |
-| Exhaustive research, repo inventory, "find every place" | Scout (Haiku) / Codex-Scout (Luna) | Builder | evidence packet with coverage |
+| Exhaustive research, repo inventory, "find every place" | Codex-Scout (Luna) first; Scout (Haiku) | Builder | evidence packet with coverage |
 | Plans, trade-offs, acceptance criteria | Director | Principal / Codex-Principal | explicit trade-offs; B needs Benjamin |
-| Routine change to an established pattern | Codex-Builder (Sol) first; Builder-1/2 (Sonnet) | Principal | targeted tests, `make check`, allowed paths |
-| Multi-file feature or integration | Codex-Builder first; Builder-1/2; Principal reviews | Principal / Codex-Principal | new tests, `make check`, review |
-| UI and visual work | Builder-1/2; Principal reviews | Codex-Builder | screenshots phone + desktop, axe |
+| Routine change to an established pattern | Codex-Builder (Sol) | Builder-1/2 (Sonnet), then Principal | targeted tests, `make check`, allowed paths |
+| Multi-file feature or integration | Codex-Builder; Codex-Principal reviews | Builder-1/2, then Principal | new tests, `make check`, review |
+| UI and visual work | Builder-1/2; Codex-Principal reviews | Codex-Builder | screenshots phone + desktop, axe |
 | Difficult debugging, migrations, incidents | Principal (Opus) / Codex-Principal (Astra) | Director | reproduced cause + failing test first |
-| Auth, payments, permissions, refunds, data loss | Principal plans small steps and reviews each; Codex-Builder implements first, then Builders | Codex-Principal | risk tests + review by a *different* agent |
+| Auth, payments, permissions, refunds, data loss | Principal plans small steps and reviews each; Codex-Builder implements | Builders, then Codex-Principal | risk tests + review by a *different* agent |
 | Client replies | Liaison | Director, then Board | verified facts; human-confirmed send |
 | Journals, metrics, lessons | Recorder | Worker | sources cited |
 | Studio architecture review after a production phase | Architect (rare; skill `architect-review`) | — | one PR of proposals under `upgrades/` |
@@ -48,6 +48,11 @@ Benjamin, 2026-10-14: **Codex builds first.** Claude's allowance is the bottlene
 unused, so building work (routine changes, multi-file features, the build steps of high-risk work) goes to
 Codex-Builder first. Builder-1/2 take UI and visual work, and building only when Codex is capped or
 Codex-Builder handed the task back. Principals keep planning and review.
+Benjamin, 2026-11-04: **the studio's Claude week is now 35 points** (he keeps 60 for his own use), so Claude
+goes to you, the Principal's planning and debugging, reviews of Codex-built work, and UI. Everything else
+builds on Codex-Builder; Builder-1/2 build only UI, or when Codex is capped or Codex-Builder handed the task
+back. Research goes to Codex-Scout first. Claude-built work is reviewed by Codex-Principal. At your next run,
+move every waiting (todo or blocked, no run) non-UI build task on Builder-1/2 to Codex-Builder.
 
 ## Size every run to fit the window
 
@@ -64,8 +69,9 @@ minutes, and Codex-Principal used about 5 points a minute. So:
 
 ## Choosing a provider
 
-Claude and Codex have separate caps (Claude 22% of each five-hour window, Codex 28%, both at most 80% of the
-week) and separate allowances. When both a Claude and a Codex agent fit a row, prefer the one whose
+Claude and Codex have separate caps (Claude 20% of each five-hour window and 35% of the week, paced by the
+day and stopped once the account's week reaches 90%; Codex 60% and 100%, paced by the day) and separate
+allowances. When both a Claude and a Codex agent fit a row, prefer the one whose
 provider has more headroom in the digest's **Usage** line. Moving work to the provider with spare allowance
 raises throughput; it does not make the work "cheaper", and the percentages are never added together.
 A run refused at a cap (exit 5) waits for the window; do not reroute high-risk work to a weaker route just to

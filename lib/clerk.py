@@ -81,6 +81,7 @@ class Clerk:
         self.state = _load(self.state_path)
         self.dry_seen = set()  # dry-run receipts live only for this tick, so nothing is lost when dry-run ends
         self.needs_director, self.needs_board, self.notes = [], [], []
+        self.waiting = []  # everything waiting on Benjamin this tick, told or not: for bin/studio-status
 
     # ---- plumbing -----------------------------------------------------------------
     def log(self, event, slug="studio", **kw):
@@ -239,6 +240,7 @@ class Clerk:
         on 2026-11-03 with nobody told)."""
         for repo, num, pr in self.open_green_prs(issue):
             key = f"review-skipped:{issue['id']}:{repo}#{num}:{pr.get('headRefOid')}"
+            self.waiting.append(f"merge PR #{num}: {phone.plain(issue.get('title') or '')} (its review was skipped)")
             if self.handled(key):
                 continue
             title, text = phone.merge_notice(num, phone.plain(issue.get("title") or ""),
@@ -479,8 +481,7 @@ class Clerk:
             if not last or reset is None or reset <= self.now():
                 return None
             s = quota.status(ledger, last, policy)
-            left = min(policy["weekly_cap"] - s["studio"]["week"], 100 - s["account"]["week"]) - policy["margin"]["week"]
-            return max(0.0, left), (reset - self.now()) / 86400
+            return max(0.0, quota.week_left(s, policy)), (reset - self.now()) / 86400
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
@@ -848,16 +849,15 @@ class Clerk:
                 if named and repos and not any((r, n) in open_prs for r in repos for n in named):
                     continue  # it is about a PR that is no longer open
                 key = f"phone-card:{card['id']}"
+                title, text = phone.card_notice(card.get("title") or "", i.get("title") or "")
+                self.waiting.append(text.splitlines()[0])
                 if self.handled(key):
                     continue
-                title, text = phone.card_notice(card.get("title") or "", i.get("title") or "")
                 self.ring(key, text, title, notify.link(f"/{i['identifier'].split('-')[0]}/issues/{i['identifier']}")
                           if i.get("identifier") else None)
 
     def merge_ready(self, repo, pr, issues):
         key = f"phone-merge:{repo}#{pr['number']}:{pr.get('headRefOid')}"
-        if self.handled(key):
-            return
         url = f"https://github.com/{repo}/pull/{pr['number']}"
         linked = []
         for i in issues:
@@ -872,6 +872,9 @@ class Clerk:
             if (full.get("executionPolicy") or {}).get("stages") and not merge_gate.paperclip_review_complete(full):
                 return
         what = phone.plain(work[0]["title"]) if work else phone.plain(pr.get("title") or "")
+        self.waiting.append(f"merge PR #{pr['number']}: {what}")
+        if self.handled(key):
+            return
         title, text = phone.merge_notice(pr["number"], what, self.waiting_on({i["id"] for i in linked}, issues))
         self.ring(key, text, title, url)
 
@@ -948,6 +951,7 @@ class Clerk:
         lines.append("## Work: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
         lines.append(f"Usage: {self.state.get('usage', 'n/a')}")
         text = "\n".join(lines)[:DIGEST_MAX_CHARS]
+        self.state["status"] = self.status_snapshot(issues, counts)
         # TODO(check): the "Director inbox" issue is found by title; the Worker's summaries of agent comments are not wired in yet.
         inbox = next((i for i in issues if i.get("title") == "Director inbox"), None)
         if self.dry or not inbox:
@@ -963,6 +967,25 @@ class Clerk:
                 self.state["last_wake_hash"] = h
             self.act("wake-director", self.pc.wake_agent, self.director, True, "clerk", self.director_inbox(issues))
         self.log("digest", wake=wake, dry=self.dry)
+
+    def status_snapshot(self, issues, counts):
+        """What bin/studio-status reports (Benjamin, 2026-11-04: a scheduled script, not an agent, saying the Studio
+        is all good, what it is stuck on, or what needs him). Rebuilt every tick, so it is never a stale list."""
+        try:
+            agents = self.pc.list_agents(self.cid) or []
+        except Exception:
+            agents = []
+        names = {a.get("id"): a.get("name") for a in agents}
+        blocked = [{"id": i.get("identifier", i["id"]), "title": phone.plain(i.get("title") or ""), "since": i.get("updatedAt"),
+                    "agent": names.get(i.get("assigneeAgentId"))}
+                   for i in issues if i.get("status") == "blocked" and i.get("title") != "Director inbox"]
+        down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason")}
+                for a in agents if a.get("status") in ("paused", "error")]
+        codex = self.week_left("codex")
+        return {"t": int(self.now()), "waiting": list(dict.fromkeys(self.waiting)), "blocked": blocked,
+                "agents": down, "counts": counts, "usage": self.state.get("usage"),
+                "codex_week": {"left": round(codex[0], 1), "days": round(codex[1], 1)} if codex else None,
+                "errors": [n for n in self.notes if n.startswith("clerk step ")]}
 
     def director_inbox(self, issues):
         """The Director inbox's id, reopened if it is parked, so a Director wake runs on it. Paperclip refuses every

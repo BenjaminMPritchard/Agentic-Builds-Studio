@@ -1,7 +1,8 @@
 """Notices to Benjamin. Every notice is logged to <data>/log/notify.jsonl; the Clerk's digest lists them too.
 
-Only three kinds reach his phone (Benjamin, 2026-10-12): a PR waiting for his merge, a decision only he can make
-(a human-only Paperclip card) and "the Studio is down". Callers pass `phone=True` for those, with a short `title`
+Only these reach his phone (Benjamin, 2026-10-12): a PR waiting for his merge, a decision only he can make
+(a human-only Paperclip card) and "the Studio is down"; and since 2026-11-04 the scheduled status from
+bin/studio-status (all good, stuck, or needs you) at 08:00 and 18:00. Callers pass `phone=True` for those, with a short `title`
 and, when there is one, a `click` link. Everything else (usage-cap pauses, retries, blocked or finished work) is
 logged only. Phone notices are sent at once, day or night. When /etc/studio/notify.json names a channel they are
 pushed there:

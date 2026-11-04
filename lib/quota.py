@@ -187,6 +187,21 @@ def held_back(policy, agent):
     return 0.0 if agent in r.get("agents", ()) else float(r.get("five_hour", 0))
 
 
+def account_stop(policy, w):
+    """The account percentage the studio never takes the account past in window `w`, whoever used the rest
+    (policy["account_stop"], 100 when unset). Benjamin, 2026-11-04: he uses Claude personally much more, and the
+    personal share alone could not protect him once his own use passed it: the studio then kept running until
+    the whole account was spent, which stops him too."""
+    return float((policy.get("account_stop") or {}).get(w, 100))
+
+
+def week_left(s, policy):
+    """Studio points left this week from a status(): the smaller of the studio's weekly cap and the room under the
+    account stop, less the margin. Benjamin's unused personal share is not taken off; admit() keeps that back."""
+    return min(policy["weekly_cap"] - s["studio"]["week"],
+               account_stop(policy, "week") - s["account"]["week"]) - policy["margin"]["week"]
+
+
 def _cap_text(policy, agent, w):
     back = held_back(policy, agent) if w == "five_hour" else 0.0
     cap = {"five_hour": policy["five_hour_cap"], "week": policy["weekly_cap"]}[w]
@@ -217,6 +232,11 @@ def over_cap(ledger, reading, policy, now, headroom=0, agent=None, token=None, e
             if used + ahead >= cap - headroom:
                 out.append(f"studio {label} use {used:g} of the {text}, and this run's pace adds about "
                            f"{ahead:.0f} more by the next check ({resets})")
+    for w, label in (("five_hour", "5-hour"), ("week", "weekly")):
+        stop = account_stop(policy, w)
+        if stop < 100 and s["account"][w] >= stop - headroom:
+            out.append(f"account {label} use {s['account'][w]:g}% of the {stop:g}% the studio stops at "
+                       f"(resets {s['resets'][w] or 'unknown'})")
     # Today's share of the week (week_pace) only ever asks for a wrap-up, never a stop without one. 2026-10-19:
     # admission checked only that the smallest run fitted, so two Codex runs spent 7.8 of a 3.6-point day.
     pace = week_pace(ledger, reading, policy, now, update=False) if headroom > 0 else None
@@ -327,7 +347,8 @@ def week_room(ledger, reading, policy):
     personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
     studio = policy["weekly_cap"] - s["studio"]["week"] - s["reserved"]["week"] - m
     account = 100 - s["account"]["week"] - s["reserved"]["week"] - m - max(0.0, policy["personal_weekly"] - personal_used)
-    return min(studio, account)
+    stop = account_stop(policy, "week") - s["account"]["week"] - s["reserved"]["week"] - m
+    return min(studio, account, stop)
 
 
 DAY = 86400
@@ -346,7 +367,7 @@ def week_pace(ledger, reading, policy, now, update=True):
     if w.get("at") is None or w["at"] <= now:
         return None
     s = status(ledger, reading, policy)
-    left = min(policy["weekly_cap"] - s["studio"]["week"], 100 - s["account"]["week"]) - policy["margin"]["week"]
+    left = week_left(s, policy)
     p = ledger.get("pace")
     if not p or p.get("key") != w["key"] or now - p["t"] >= DAY:
         p = {"key": w["key"], "t": now, "left": left,
@@ -393,6 +414,9 @@ def admit(ledger, reading, agent, pid, policy, now, pid_alive=_pid_alive, run=No
     need("account 5-hour", s["account"]["five_hour"], "five_hour", 100)
     personal_used = max(0.0, s["account"]["week"] - s["studio"]["week"])
     need("account weekly", s["account"]["week"], "week", 100, max(0.0, policy["personal_weekly"] - personal_used))
+    for w, label in (("five_hour", "5-hour"), ("week", "weekly")):
+        if account_stop(policy, w) < 100:
+            need(f"account {label} stop", s["account"][w], w, account_stop(policy, w))
     pace = week_pace(ledger, reading, policy, now)
     if pace:
         spent, budget, start = pace
