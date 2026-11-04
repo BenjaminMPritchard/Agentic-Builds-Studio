@@ -44,6 +44,8 @@ class Status(unittest.TestCase):
         self.assertEqual(title, "Studio: all good")
         self.assertTrue(text.startswith("Nothing needs you and nothing is stuck."))
         self.assertIn("Work: 2 in progress, 3 to do.", text)
+        self.snap(queued=4)
+        self.assertIn("Work: 2 in progress, 3 to do, 4 waiting for earlier tasks.", self.report()[1])
         self.assertIn("Claude: studio used 4 of 20 points this 5-hour window (resets 1pm), 9 of 35 this week.", text)
         self.assertIn("Codex: 62.5 points left this week, 3.2 days to reset.", text)
 
