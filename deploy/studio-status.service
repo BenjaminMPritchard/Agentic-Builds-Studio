@@ -1,0 +1,12 @@
+# /etc/systemd/system/studio-status.service
+# Benjamin's scheduled Studio status on his phone: all good, stuck, or needs you (bin/studio-status). Install:
+#   sudo cp /srv/studio/company/deploy/studio-status.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now studio-status.timer
+[Unit]
+Description=Studio status notice to Benjamin's phone
+
+[Service]
+Type=oneshot
+User=paperclip
+Group=paperclip
+ExecStart=/srv/studio/company/bin/studio-status

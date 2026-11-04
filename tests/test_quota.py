@@ -15,7 +15,11 @@ with open(os.path.join(ROOT, "policy", "quota.json")) as _f:
     POLICY = json.load(_f)["claude"]
 RESERVE = POLICY["reserve"]
 DIRECTOR = RESERVE["agents"][0]
-POLICY = {**POLICY, "five_hour_cap": 12, "reserve": {}}  # the controller scenarios below are worked for a 12-point cap
+LIVE = POLICY
+# The controller scenarios below are worked for a 12-point 5-hour cap, an 80-point week, a 20-point personal share,
+# no account stop and no pacing (the policy before 2026-11-04); they test the rules, not today's numbers.
+POLICY = {**POLICY, "five_hour_cap": 12, "reserve": {}, "weekly_cap": 80, "personal_weekly": 20, "account_stop": {},
+          "week_pace": False}
 
 USAGE = """You are currently using your subscription to power your Claude Code usage
 
@@ -273,6 +277,40 @@ class Controller(unittest.TestCase):
         tok, why = self.fresh(79.5, 80)
         self.assertTrue(any("personal 19.5" in w for w in why), why)
 
+    def test_the_account_stop_protects_benjamin_past_his_share(self):
+        # 2026-11-04: once his own use passed the personal share, the studio could still spend the account to 100.
+        policy = {**POLICY, "account_stop": {"week": 90}}
+        stop = lambda sw, aw: quota.admit(quota.empty() | {"studio": {"five_hour": {}, "week": {"Oct 5, 9am (Europe/London)": sw}}},
+                                          reading(0, aw), "rec", 1, policy, self.t, pid_alive=alive)
+        self.assertTrue(stop(10, 89)[0])  # 89 + 0.5 + 0.5 = 90: allowed
+        tok, why = stop(10, 89.5)  # personal 79.5, far past 20: only the stop refuses
+        self.assertIsNone(tok)
+        self.assertEqual([w for w in why if w.startswith("account weekly stop")], why)
+        self.assertTrue(stop(10, 95)[0] is None)
+        self.assertTrue(quota.admit(quota.empty(), reading(0, 95), "rec", 1, POLICY, self.t, pid_alive=alive)[0])  # no stop set
+
+    def test_a_run_is_asked_to_wrap_up_at_the_account_stop(self):
+        policy = {**POLICY, "account_stop": {"week": 90}}
+        self.assertEqual(quota.over_cap(self.l, reading(0, 87), policy, self.t, headroom=2), [])
+        why = quota.over_cap(self.l, reading(0, 88), policy, self.t, headroom=2)
+        self.assertEqual(len(why), 1)
+        self.assertIn("account weekly use 88% of the 90% the studio stops at", why[0])
+
+    def test_week_left_and_room_respect_the_account_stop(self):
+        policy = {**POLICY, "account_stop": {"week": 90}}
+        self.l["studio"]["week"]["Oct 5, 9am (Europe/London)"] = 10
+        s = quota.status(self.l, reading(0, 85), policy)
+        self.assertEqual(quota.week_left(s, policy), 4.5)  # 90 - 85 - 0.5, under 80 - 10 - 0.5
+        self.assertEqual(quota.week_room(self.l, reading(0, 85), policy), 4.5)
+        self.assertEqual(quota.week_left(s, POLICY), 14.5)  # no stop: 100 - 85 - 0.5
+
+    def test_the_live_claude_policy_leaves_benjamin_his_share(self):
+        # Benjamin, 2026-11-04: studio 35, his 60, and the studio stops at 90% of the account week.
+        self.assertEqual((LIVE["weekly_cap"], LIVE["personal_weekly"], quota.account_stop(LIVE, "week")), (35, 60, 90))
+        self.assertLessEqual(LIVE["weekly_cap"] + LIVE["personal_weekly"] + 2 * LIVE["margin"]["week"], 100)
+        self.assertLessEqual(LIVE["weekly_cap"] + 2 * LIVE["margin"]["week"], quota.account_stop(LIVE, "week"))
+        self.assertTrue(LIVE["week_pace"])
+
     def test_account_week_nearly_full_refuses(self):
         tok, why = self.admit(reading(0, 99.5))
         self.assertIsNone(tok)
@@ -401,14 +439,14 @@ class Controller(unittest.TestCase):
             json.dump(quota.override("five_hour", 100, until=1000), f)
         policy_file = os.path.join(ROOT, "policy", "quota.json")
         self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["five_hour_cap"], 100.0)
-        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["five_hour_cap"], 30)  # ended
-        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 80)  # untouched
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["five_hour_cap"], LIVE["five_hour_cap"])  # ended
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], LIVE["weekly_cap"])  # untouched
         with self.assertRaises(QuotaError):
             quota.override("five_hour", 120, until=1000)
         with open(path, "w") as f:  # the one-window format written before 2026-10-06
             json.dump({"weekly_cap": 100.0, "until": 1000}, f)
         self.assertEqual(quota.load_policy(policy_file, "claude", path, now=999)["weekly_cap"], 100.0)
-        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["weekly_cap"], 80)
+        self.assertEqual(quota.load_policy(policy_file, "claude", path, now=1000)["weekly_cap"], LIVE["weekly_cap"])
         shutil.rmtree(os.path.dirname(path))
 
     def test_an_override_keeps_the_other_windows_until_it_ends(self):
@@ -486,12 +524,12 @@ class Cli(unittest.TestCase):
         # 2026-10-01: admission passed at 0% and one Codex run then took the whole five-hour window.
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "30"])
-        self.usage(40 + 31, 12)  # 31 points of studio use since admission; the Claude cap is 30
+        self.usage(40 + 21, 12)  # 21 points of studio use since admission; the Claude cap is 20
         env = {**self.env, "STUDIO_QUOTA_POLL": "0.05", "STUDIO_QUOTA_SETTLE": "0", "STUDIO_QUOTA_CHECK": "0.2"}
         rel = subprocess.Popen([os.path.join(ROOT, "bin", "studio-quota"), "release", "--provider", "claude",
                                 "--after-pid", str(run.pid), token], env=env, stderr=subprocess.PIPE, text=True)
         self.assertEqual(run.wait(timeout=10), -15)  # SIGTERM
-        self.assertIn("of the 26-point cap (30, less 4 kept for the Director)", rel.communicate(timeout=10)[1])
+        self.assertIn("of the 16-point cap (20, less 4 kept for the Director)", rel.communicate(timeout=10)[1])
         stop = json.loads(open(os.path.join(self.tmp, "q", "stops.jsonl")).read())
         self.assertEqual((stop["pid"], stop["token"]), (run.pid, token))
 
@@ -517,12 +555,12 @@ class Cli(unittest.TestCase):
         # 2026-10-02, Benjamin: the cap should ask the agent to pause; a graceful stop is the point of it.
         token = self.q("admit", "--provider", "claude", "--agent", "rec", "--pid", str(os.getpid())).stdout.strip()
         run = subprocess.Popen(["sleep", "2"])
-        self.usage(40 + 29, 12)  # 29 of the 30-point cap: inside it, but within the wrap-up headroom
+        self.usage(40 + 19, 12)  # 19 of the 20-point cap: inside it, but within the wrap-up headroom
         rel = self.release(run, token, wrap_minutes=10)
         deadline = time.time() + 5
         while not os.path.exists(self.flag) and time.time() < deadline:
             time.sleep(0.05)
-        self.assertIn("29 of the 26-point cap", open(self.flag).read())
+        self.assertIn("19 of the 16-point cap", open(self.flag).read())
         self.assertIsNone(run.poll())  # asked, not stopped
         self.assertEqual(run.wait(timeout=10), 0)  # it ended by itself
         rel.communicate(timeout=10)

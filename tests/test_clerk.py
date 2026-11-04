@@ -238,7 +238,7 @@ class ClerkTests(unittest.TestCase):
         try:
             clerk_mod.QUOTA_LEDGER = ledger
             c = self.clerk(now=lambda: 600); c.tick()
-            self.assertIn("Claude studio use 4.5 of 30 points this 5-hour window (resets 1pm), 1.5 of 80 this week",
+            self.assertIn("Claude studio use 4.5 of 20 points this 5-hour window (resets 1pm), 1.5 of 35 this week",
                           c.state["usage"])
             self.assertIn("reading 10 min old", c.state["usage"])
             clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "missing.json")
@@ -394,6 +394,18 @@ class ClerkTests(unittest.TestCase):
             c, calls = self.gate_clerk(); c.tick()
             self.assertEqual(len(sent), 2)
             self.assertEqual(calls, [])
+
+    def test_the_status_snapshot_keeps_what_waits_on_benjamin_after_he_was_told(self):
+        # 2026-11-04: bin/studio-status reads this; the phone notice goes once, the waiting stays listed.
+        self.skipped(); self.green()
+        self.fp.add(id="b", title="AGE-108: Blocked step", status="blocked")
+        with mock.patch.object(clerk_mod.notify, "send", lambda *a, **kw: None):
+            for _ in range(2):
+                c, _ = self.gate_clerk(); c.tick()
+                snap = c.state["status"]
+                self.assertEqual([w for w in snap["waiting"] if w.startswith("merge PR #9")], [snap["waiting"][0]])
+                self.assertEqual([b["title"] for b in snap["blocked"]], ["AGE-108: Blocked step"])
+                self.assertEqual(snap["counts"].get("blocked"), 1)
 
     def test_a_skipped_review_with_red_checks_waits(self):
         self.skipped(); self.green(checks=[{"conclusion": "FAILURE"}])
@@ -885,7 +897,7 @@ class RestartReviews(unittest.TestCase):
         os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
         ledger = {"last": {"t": self.T - 7200, "five_hour": {"pct": 30.0, "key": "K", "at": self.T - 60},
                            "week": {"pct": 50.0, "key": "W", "at": self.T + 86400}},
-                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 40.0}}, "active": {}, "samples": {}}
+                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 20.0}}, "active": {}, "samples": {}}
         with open(os.path.join(clerk_mod.QUOTA_DIR, "claude.json"), "w") as f:
             json.dump(ledger, f)
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)

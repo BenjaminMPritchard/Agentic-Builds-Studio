@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""A scheduled Studio status for Benjamin's phone: all good, what it is stuck on, or what needs him.
+
+Benjamin, 2026-11-04: "a scheduled update ... this should be a script not an agent". It uses no model and makes
+no Paperclip call: it reads the snapshot the Clerk writes every tick (clerk-state.json "status", lib/clerk.py
+status_snapshot) and checks that Paperclip answers. It runs from deploy/studio-status.timer as paperclip and
+sends one phone notice through lib/notify each time. `--print` shows the notice without sending it.
+"""
+import json
+import os
+import sys
+import time
+import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from lib import notify  # noqa: E402
+
+DATA = os.environ.get("STUDIO_DATA", "/srv/studio/data")
+URL = os.environ.get("PAPERCLIP_API_URL", "http://localhost:3100").rstrip("/")
+STALE = 30 * 60  # the Clerk ticks about every 11 minutes
+SHOW = 5  # items per section; the rest are counted
+
+
+def _epoch(iso):
+    import datetime
+    try:
+        return datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+
+
+def _ago(seconds):
+    if seconds < 3600:
+        return f"{max(1, int(seconds / 60))} min"
+    if seconds < 2 * 86400:
+        return f"{int(seconds / 3600)} h"
+    return f"{int(seconds / 86400)} days"
+
+
+def _section(head, items):
+    lines = [head] + [f"- {x}" for x in items[:SHOW]]
+    if len(items) > SHOW:
+        lines.append(f"- and {len(items) - SHOW} more")
+    return lines
+
+
+def paperclip_up(url=URL, opener=urllib.request.urlopen):
+    try:
+        with opener(f"{url}/api/health", timeout=20) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def report(now, data=DATA, up=True):
+    """(title, text) for the phone."""
+    try:
+        with open(os.path.join(data, "clerk-state.json")) as f:
+            snap = json.load(f).get("status")
+    except (OSError, ValueError):
+        snap = None
+    if not up:
+        return "Studio is down", "Paperclip is not answering, so no agent can run. Check: systemctl status paperclip"
+    if not snap:
+        return "Studio status missing", ("The Clerk has written no status yet. It writes one every tick from the "
+                                         "version that added bin/studio-status, so activate that.")
+    if now - snap.get("t", 0) > STALE:
+        return "Studio is stuck", (f"The Clerk has not reported for {_ago(now - snap['t'])}, so nothing is retried "
+                                   "or gated. Check the Clerk agent in Paperclip.")
+    waiting = snap.get("waiting") or []
+    stuck = []
+    for b in snap.get("blocked") or []:
+        since = _epoch(b.get("since"))
+        who = f", {b['agent']}" if b.get("agent") else ""
+        stuck.append(f"{b['id']} {b['title'][:60]} (blocked {_ago(now - since) if since else '?'}{who})")
+    stuck += [f"{a['name']} is {a['status']}" + (f" ({a['why']})" if a.get("why") else "") for a in snap.get("agents") or []]
+    stuck += snap.get("errors") or []
+    lines = []
+    if waiting:
+        lines += _section("Needs you:", waiting)
+    if stuck:
+        lines += _section("Stuck:", stuck)
+    c = snap.get("counts") or {}
+    work = ", ".join(f"{c[k]} {label}" for k, label in (("in_progress", "in progress"), ("in_review", "in review"),
+                                                         ("todo", "to do")) if c.get(k))
+    lines.append(f"Work: {work or 'nothing open'}.")
+    if snap.get("usage"):
+        lines.append(snap["usage"].split(";")[0].replace("Claude studio use", "Claude: studio used") + ".")
+    if snap.get("codex_week"):
+        cw = snap["codex_week"]
+        lines.append(f"Codex: {cw['left']:g} points left this week, {cw['days']:g} days to reset.")
+    title = "Studio needs you" if waiting else "Studio is stuck" if stuck else "Studio: all good"
+    if not waiting and not stuck:
+        lines.insert(0, "Nothing needs you and nothing is stuck.")
+    return title, "\n".join(lines)
+
+
+def main(argv=None, now=None):
+    argv = sys.argv[1:] if argv is None else argv
+    now = time.time() if now is None else now
+    title, text = report(now, up=paperclip_up())
+    if "--print" in argv:
+        print(title)
+        print(text)
+        return 0
+    notify.send(DATA, text, now, phone=True, title=title, click=notify.link("/AGE/issues"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
