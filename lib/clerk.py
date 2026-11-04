@@ -1000,12 +1000,25 @@ class Clerk:
         parked = [i for i in issues if i.get("status") == "blocked" and i.get("title") != "Director inbox"]
         blocked = [{"id": i.get("identifier", i["id"]), "title": phone.plain(i.get("title") or ""), "since": i.get("updatedAt"),
                     "agent": names.get(i.get("assigneeAgentId"))} for i in parked if not waits_on_open_work(i)]
-        down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason")}
-                for a in agents if a.get("status") in ("paused", "error")]
+        try:
+            runs = self.pc.runs(self.cid, limit=200) or []
+        except Exception:
+            runs = []
+        latest = {}
+        for r in sorted(runs, key=lambda r: r.get("createdAt") or ""):
+            latest[r.get("agentId")] = r
+        # 2026-11-04: Paperclip shows "error" after a run the usage cap refused, and keeps an old "error" after a
+        # cancelled run. A cap refusal is waiting for its window, not stuck; the status lists it as capped.
+        capped = [a.get("name") for a in agents if a.get("status") == "error"
+                  and (latest.get(a.get("id")) or {}).get("status") == "failed"
+                  and CAP_REFUSED.search((latest.get(a.get("id")) or {}).get("error") or "")]
+        down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason"),
+                 "last_run": (latest.get(a.get("id")) or {}).get("createdAt")}
+                for a in agents if a.get("status") in ("paused", "error") and a.get("name") not in capped]
         codex = self.week_left("codex")
         return {"t": int(self.now()), "waiting": list(dict.fromkeys(self.waiting)), "blocked": blocked,
                 "queued": len(parked) - len(blocked),
-                "agents": down, "counts": counts, "usage": self.state.get("usage"),
+                "agents": down, "capped": capped, "counts": counts, "usage": self.state.get("usage"),
                 "codex_week": {"left": round(codex[0], 1), "days": round(codex[1], 1)} if codex else None,
                 "errors": [n for n in self.notes if n.startswith("clerk step ")]}
 

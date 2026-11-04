@@ -409,6 +409,18 @@ class ClerkTests(unittest.TestCase):
                 self.assertEqual(snap["queued"], 1)  # "Next step" waits for an open task: in order, not stuck
                 self.assertEqual(snap["counts"].get("blocked"), 2)
 
+    def test_the_status_snapshot_lists_capped_agents_apart_from_errors(self):
+        self.fp.agents = [{"id": "b2", "name": "Builder-2", "status": "error"},
+                          {"id": "cs", "name": "Codex-Scout", "status": "error"},
+                          {"id": "d", "name": "Director", "status": "idle"}]
+        self.fp.runs_ = [{"id": "r1", "agentId": "b2", "status": "failed", "createdAt": "2026-11-04T16:08:00Z",
+                          "error": "studio-quota: claude cap reached; not starting"},
+                         {"id": "r2", "agentId": "cs", "status": "cancelled", "createdAt": "2026-10-19T11:23:00Z"}]
+        c = self.clerk(); c.tick()
+        snap = c.state["status"]
+        self.assertEqual(snap["capped"], ["Builder-2"])
+        self.assertEqual([(a["name"], a["last_run"]) for a in snap["agents"]], [("Codex-Scout", "2026-10-19T11:23:00Z")])
+
     def test_a_skipped_review_with_red_checks_waits(self):
         self.skipped(); self.green(checks=[{"conclusion": "FAILURE"}])
         c, calls = self.gate_clerk(); c.tick()
