@@ -53,7 +53,8 @@ class Status(unittest.TestCase):
                   agents=[{"name": "Codex-Builder", "status": "error", "why": None}])
         title, text = self.report()
         self.assertEqual(title, "Studio is stuck")
-        self.assertIn("- AGE-108 Viewing lifecycle (blocked 4 h, Builder-2)", text)
+        self.assertIn("- Viewing lifecycle (blocked 4 h, Builder-2)", text)
+        self.assertNotIn("AGE-", text)
         self.assertIn("- Codex-Builder is error", text)
 
     def test_what_needs_benjamin_comes_first(self):

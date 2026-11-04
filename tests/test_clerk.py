@@ -404,7 +404,7 @@ class ClerkTests(unittest.TestCase):
                 c, _ = self.gate_clerk(); c.tick()
                 snap = c.state["status"]
                 self.assertEqual([w for w in snap["waiting"] if w.startswith("merge PR #9")], [snap["waiting"][0]])
-                self.assertEqual([b["title"] for b in snap["blocked"]], ["AGE-108: Blocked step"])
+                self.assertEqual([b["title"] for b in snap["blocked"]], ["Blocked step"])  # no codes on the phone
                 self.assertEqual(snap["counts"].get("blocked"), 1)
 
     def test_a_skipped_review_with_red_checks_waits(self):

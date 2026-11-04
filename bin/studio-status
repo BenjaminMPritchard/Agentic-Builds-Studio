@@ -72,7 +72,7 @@ def report(now, data=DATA, up=True):
     for b in snap.get("blocked") or []:
         since = _epoch(b.get("since"))
         who = f", {b['agent']}" if b.get("agent") else ""
-        stuck.append(f"{b['id']} {b['title'][:60]} (blocked {_ago(now - since) if since else '?'}{who})")
+        stuck.append(f"{b['title'][:70]} (blocked {_ago(now - since) if since else '?'}{who})")  # no AGE codes on the phone
     stuck += [f"{a['name']} is {a['status']}" + (f" ({a['why']})" if a.get("why") else "") for a in snap.get("agents") or []]
     stuck += snap.get("errors") or []
     lines = []

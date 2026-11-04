@@ -850,7 +850,7 @@ class Clerk:
                     continue  # it is about a PR that is no longer open
                 key = f"phone-card:{card['id']}"
                 title, text = phone.card_notice(card.get("title") or "", i.get("title") or "")
-                self.waiting.append(f"{i.get('identifier', '')}: {text.splitlines()[0]}".lstrip(": "))
+                self.waiting.append(text.splitlines()[0])
                 if self.handled(key):
                     continue
                 self.ring(key, text, title, notify.link(f"/{i['identifier'].split('-')[0]}/issues/{i['identifier']}")
@@ -976,7 +976,7 @@ class Clerk:
         except Exception:
             agents = []
         names = {a.get("id"): a.get("name") for a in agents}
-        blocked = [{"id": i.get("identifier", i["id"]), "title": i.get("title") or "", "since": i.get("updatedAt"),
+        blocked = [{"id": i.get("identifier", i["id"]), "title": phone.plain(i.get("title") or ""), "since": i.get("updatedAt"),
                     "agent": names.get(i.get("assigneeAgentId"))}
                    for i in issues if i.get("status") == "blocked" and i.get("title") != "Director inbox"]
         down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason")}
