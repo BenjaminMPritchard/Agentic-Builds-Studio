@@ -1215,19 +1215,23 @@ class BuildOnCodex(unittest.TestCase):
         self.fp.add(id="t", identifier="AGE-120", title="t", status="todo", assigneeAgentId="b1")
         self.fp.add(id="k", identifier="AGE-121", title="k", status="blocked", assigneeAgentId="b1")
         self.fp.add(id="live", identifier="AGE-122", title="l", status="in_progress", assigneeAgentId="b1")
-        self.fp.add(id="exec", identifier="AGE-123", title="e", status="in_progress", assigneeAgentId="b2", executionRunId="x")
+        self.fp.add(id="exec", identifier="AGE-123", title="e", status="in_progress", assigneeAgentId="b2", executionRunId="r2")
+        self.fp.add(id="stale", identifier="AGE-125", title="s", status="in_progress", assigneeAgentId="b2",
+                    executionRunId="old", checkoutRunId="old")
         self.fp.add(id="done", identifier="AGE-100", title="d", status="done", assigneeAgentId="b1")
         self.fp.add(id="back", identifier="AGE-124", title="b", status="todo", assigneeAgentId="b1")
-        self.fp.runs_ = [{"id": "r", "agentId": "b1", "status": "running", "contextSnapshot": {"issueId": "live"}}]
+        self.fp.runs_ = [{"id": "r", "agentId": "b1", "status": "running", "contextSnapshot": {"issueId": "live"}},
+                         {"id": "r2", "agentId": "b2", "status": "queued", "contextSnapshot": {}},
+                         {"id": "old", "agentId": "b2", "status": "succeeded", "contextSnapshot": {"issueId": "stale"}}]
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
         c.mark("spare-codex:back")
         c.save()
         c = self.tick()
         self.fp.issues["w"]["assigneeAgentId"] = "b2"  # the Director moves it back: that stands
         self.tick()
-        self.assertEqual(sorted(self.moves()), [("k", "cb"), ("t", "cb"), ("w", "cb")])
+        self.assertEqual(sorted(self.moves()), [("k", "cb"), ("stale", "cb"), ("t", "cb"), ("w", "cb")])
         self.assertIn("continue from its latest commit", next(p[1]["comment"] for p in self.fp.patches if p[0] == "w"))
-        self.assertEqual(len(c.needs_director), 3)
+        self.assertEqual(len(c.needs_director), 4)
 
     def test_left_alone_below_the_floor_without_a_reading_or_with_codex_paused(self):
         self.fp.add(id="t", identifier="AGE-120", title="t", status="todo", assigneeAgentId="b1")

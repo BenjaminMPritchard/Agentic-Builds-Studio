@@ -545,6 +545,7 @@ class Clerk:
             return
         room = self.week_left("codex")
         if not floor or room is None:
+            self.log("build_on_codex_skip", why="no floor" if not floor else "no Codex week reading")
             return
         left, days = room
         if left / max(days, 1 / 24) < floor:
@@ -555,14 +556,16 @@ class Clerk:
             return
         names = {a["id"]: a.get("name") or "" for a in agents}
         candidates = [i for i in issues if re.match(r"^Builder-\d+$", names.get(i.get("assigneeAgentId"), ""))
-                      and i.get("status") in ("todo", "blocked", "in_progress") and not i.get("executionRunId")
+                      and i.get("status") in ("todo", "blocked", "in_progress")
                       and not self.handled(f"spare-codex:{i['id']}") and not self.handled(f"codex-build:{i['id']}")]
         if not candidates:
             return
-        live = {(r.get("contextSnapshot") or {}).get("issueId") for r in self.pc.runs(self.cid, limit=200)
-                if r.get("status") in self.LIVE_RUN}
+        runs = [r for r in self.pc.runs(self.cid, limit=200) if r.get("status") in self.LIVE_RUN]
+        live_issues, live_runs = {(r.get("contextSnapshot") or {}).get("issueId") for r in runs}, {r.get("id") for r in runs}
         for i in candidates:
-            if i["id"] in live:
+            # Paperclip keeps executionRunId and checkoutRunId after the run ends (2026-11-05: AGE-108 sat idle on
+            # Builder-2 for 2 h and never moved), so only a run that is still live keeps the task where it is.
+            if i["id"] in live_issues or {i.get("executionRunId"), i.get("checkoutRunId")} & (live_runs - {None}):
                 continue
             name, was = i.get("identifier", i["id"]), names[i["assigneeAgentId"]]
             note = (f"[Clerk] Building runs on Codex while its week has room ({left:.0f} points left, {days:.1f} days "
