@@ -131,7 +131,7 @@ class Clerk:
         issues = self.pc.list_issues(self.cid)
         by_id = {i["id"]: i for i in issues}
         for step in (self.deploy_sync, self.github_sync, self.merge_approved, self.plan_gate, self.ensure_review, self.caps, self.resume_capped, self.unblock_capped,
-                     self.spare_codex, self.resume_after_merge, self.restart_reviews, self.reviews_stay_with_agents, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
+                     self.spare_codex, self.build_on_codex, self.resume_after_merge, self.restart_reviews, self.reviews_stay_with_agents, self.stuck_to_director, self.tell_benjamin, self.watchdog, self.record_runs, self.digest):
             try:
                 step(issues, by_id)
             except Exception as e:  # keep going; record it
@@ -528,6 +528,54 @@ class Clerk:
                 i["assigneeAgentId"] = to["id"]  # later steps this tick wake the new assignee, not Codex-Builder
                 self.needs_director.append(f"{name} moved from Codex-Builder to {to['name']}: Codex's week is nearly spent.")
                 self.log("spare_codex", task=name, to=to["name"], per_day=round(per_day, 1))
+
+    LIVE_RUN = ("queued", "running", "scheduled_retry")
+
+    def build_on_codex(self, issues, by_id):
+        """While Codex's week can carry building (the week left, spread over the days to its reset, is at least
+        codex.spare_builds_below_per_day), move build tasks waiting on a Claude Builder (todo, blocked, or
+        in_progress with no live run) to Codex-Builder. Benjamin, 2026-11-04: building is on Codex and Claude's
+        studio share drops to 35; 2026-11-05: Codex-Builder had not run since 19 Oct, AGE-108 waited all day on
+        Builder-2's 5-hour window with 91.5 Codex points unused ("I expect 100% weekly usage by the end of each
+        week"). The opposite of spare_codex, which wins below the floor; a task spare_codex moved is not moved
+        back, and each task moves once, so a Director move back stands. A task with a live run finishes where it is."""
+        try:
+            floor = quota.load_policy(QUOTA_POLICY, "codex").get("spare_builds_below_per_day")
+        except (OSError, ValueError, KeyError):
+            return
+        room = self.week_left("codex")
+        if not floor or room is None:
+            return
+        left, days = room
+        if left / max(days, 1 / 24) < floor:
+            return
+        agents = self.pc.list_agents(self.cid)
+        codex = next((a for a in agents if a.get("name") == "Codex-Builder"), None)
+        if not codex or codex.get("status") == "paused":
+            return
+        names = {a["id"]: a.get("name") or "" for a in agents}
+        candidates = [i for i in issues if re.match(r"^Builder-\d+$", names.get(i.get("assigneeAgentId"), ""))
+                      and i.get("status") in ("todo", "blocked", "in_progress") and not i.get("executionRunId")
+                      and not self.handled(f"spare-codex:{i['id']}") and not self.handled(f"codex-build:{i['id']}")]
+        if not candidates:
+            return
+        live = {(r.get("contextSnapshot") or {}).get("issueId") for r in self.pc.runs(self.cid, limit=200)
+                if r.get("status") in self.LIVE_RUN}
+        for i in candidates:
+            if i["id"] in live:
+                continue
+            name, was = i.get("identifier", i["id"]), names[i["assigneeAgentId"]]
+            note = (f"[Clerk] Building runs on Codex while its week has room ({left:.0f} points left, {days:.1f} days "
+                    f"to its reset), so this task moves from {was} to Codex-Builder and Claude's share stays with the "
+                    "Director and reviews. Codex-Builder: build it from the packet as written. If the task already has "
+                    "a branch with pushed commits, check it out and continue from its latest commit; do not start over. "
+                    "Its review stage is unchanged.")
+            if self.once(f"codex-build:{i['id']}", f"move {name} from {was} to Codex-Builder",
+                         self.pc.patch_issue, i["id"], assigneeAgentId=codex["id"], comment=note):
+                i["assigneeAgentId"] = codex["id"]
+                self.needs_director.append(f"{name} moved from {was} to Codex-Builder: building runs on Codex. "
+                                           "Assign new build tasks to Codex-Builder.")
+                self.log("build_on_codex", task=name, was=was)
 
     def resume_capped(self, issues, by_id):
         """Wake an agent whose latest run was refused by a usage cap, once per refusal, 20 minutes after it.

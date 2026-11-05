@@ -1195,3 +1195,47 @@ class SpareCodex(unittest.TestCase):
         self.ledger(90.0, 80.0, -0.1)  # a reading from before the reset says nothing
         self.tick()
         self.assertEqual(self.moves(), [])
+
+
+class BuildOnCodex(unittest.TestCase):
+    """2026-11-05: Codex-Builder had not run since 19 Oct while AGE-108 waited all day on Builder-2's Claude window."""
+    tearDown = ClerkTests.tearDown
+    T = SpareCodex.T
+    setUp, ledger, moves = SpareCodex.setUp, SpareCodex.ledger, SpareCodex.moves
+
+    def tick(self):
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
+        c.build_on_codex(list(self.fp.issues.values()), dict(self.fp.issues))
+        c.save()
+        return c
+
+    def test_waiting_claude_builds_move_to_codex_once(self):
+        self.ledger(8.5, 8.5, 4.7)  # 91 left over 4.7 days: 19 a day
+        self.fp.add(id="w", identifier="AGE-108", title="w", status="in_progress", assigneeAgentId="b2")
+        self.fp.add(id="t", identifier="AGE-120", title="t", status="todo", assigneeAgentId="b1")
+        self.fp.add(id="k", identifier="AGE-121", title="k", status="blocked", assigneeAgentId="b1")
+        self.fp.add(id="live", identifier="AGE-122", title="l", status="in_progress", assigneeAgentId="b1")
+        self.fp.add(id="exec", identifier="AGE-123", title="e", status="in_progress", assigneeAgentId="b2", executionRunId="x")
+        self.fp.add(id="done", identifier="AGE-100", title="d", status="done", assigneeAgentId="b1")
+        self.fp.add(id="back", identifier="AGE-124", title="b", status="todo", assigneeAgentId="b1")
+        self.fp.runs_ = [{"id": "r", "agentId": "b1", "status": "running", "contextSnapshot": {"issueId": "live"}}]
+        c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
+        c.mark("spare-codex:back")
+        c.save()
+        c = self.tick()
+        self.fp.issues["w"]["assigneeAgentId"] = "b2"  # the Director moves it back: that stands
+        self.tick()
+        self.assertEqual(sorted(self.moves()), [("k", "cb"), ("t", "cb"), ("w", "cb")])
+        self.assertIn("continue from its latest commit", next(p[1]["comment"] for p in self.fp.patches if p[0] == "w"))
+        self.assertEqual(len(c.needs_director), 3)
+
+    def test_left_alone_below_the_floor_without_a_reading_or_with_codex_paused(self):
+        self.fp.add(id="t", identifier="AGE-120", title="t", status="todo", assigneeAgentId="b1")
+        self.ledger(67.0, 52.0, 5.9)  # 5.5 a day: spare_codex's side
+        self.tick()
+        self.ledger(10.0, 10.0, -0.1)
+        self.tick()
+        self.ledger(8.5, 8.5, 4.7)
+        self.fp.agents[0]["status"] = "paused"
+        self.tick()
+        self.assertEqual(self.moves(), [])
