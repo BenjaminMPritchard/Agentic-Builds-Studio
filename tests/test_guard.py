@@ -228,6 +228,36 @@ class Guard(unittest.TestCase):
             srv.shutdown()
         self.assertEqual(self.bash("paperclipai email send --to a@b.c", env={"PAPERCLIP_API_URL": ""}), 2)
 
+    def test_the_task_packet_allowed_paths_unlock_protected_files(self):
+        packet = {"v": "- **Goal:** x\n- **Allowed paths** (beyond the normal ones; protected paths only if listed): "
+                       "`src/**`, `CLAUDE.md`\n  - `docs/PLAN.md`\n- **Protected / do not touch:** `.claude/**`\n"}
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(s):
+                body = json.dumps({"id": "t1", "description": packet["v"]}).encode()
+                s.send_response(200 if s.path == "/api/issues/t1" else 404); s.end_headers(); s.wfile.write(body)
+            def log_message(*a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        env = {"PAPERCLIP_API_URL": f"http://127.0.0.1:{srv.server_port}", "PAPERCLIP_TASK_ID": "t1", "PAPERCLIP_API_KEY": "k"}
+        edit = lambda f, e=env: run("Edit", {"file_path": f, "new_string": "y"}, self.work, e)
+        try:
+            self.assertEqual(edit("CLAUDE.md"), 0)
+            self.assertEqual(edit("docs/PLAN.md"), 0)
+            self.assertEqual(edit(".claude/settings.json"), 2)  # listed under "do not touch", not allowed
+            self.assertEqual(self.bash("sed -i s/a/b/ CLAUDE.md", env=env), 0)
+            packet["v"] = "- **Allowed paths:** CONSTITUTION.md, policy/**, .studio-allowed-paths, CLAUDE.md"
+            self.assertEqual(edit("CONSTITUTION.md"), 2)
+            self.assertEqual(edit("policy/quota.json"), 2)
+            self.assertEqual(edit(".studio-allowed-paths"), 2)
+            self.assertEqual(edit("CLAUDE.md"), 0)
+            packet["v"] = "- **Allowed paths:** src/**"
+            self.assertEqual(edit("CLAUDE.md"), 2)
+            self.assertEqual(edit("CLAUDE.md", {**env, "PAPERCLIP_TASK_ID": "other"}), 2)
+        finally:
+            srv.shutdown()
+        self.assertEqual(edit("CLAUDE.md", {"PAPERCLIP_API_URL": ""}), 2)
+
     def test_bad_input_is_no_decision(self):
         r = subprocess.run([GUARD], input="not json", capture_output=True, text=True)
         self.assertEqual(r.returncode, 0)

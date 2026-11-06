@@ -62,9 +62,55 @@ def repo_root(cwd):
         return None
 
 
+PACKET_ALLOWED = re.compile(r"^\s*(?:[-*]\s*)?\*\*Allowed paths(?:\*\*[^:\n]*:|:\*\*)(.*)$", re.M | re.I)
+PACKET_FIELD = re.compile(r"^\s*(?:[-*]\s*)?\*\*")
+
+
+def packet_paths(text):
+    """The paths a task packet's "Allowed paths" line lists (templates/task-packet.md): backticked entries, or else
+    comma or space separated ones that look like paths, on that line and the indented bullets under it."""
+    m = PACKET_ALLOWED.search(text or "")
+    if not m:
+        return []
+    lines = [m.group(1)]
+    for ln in text[m.end():].splitlines()[1:]:
+        if not ln.strip() or PACKET_FIELD.match(ln) or not re.match(r"\s+[-*]\s", ln):
+            break
+        lines.append(ln)
+    out = []
+    for ln in lines:
+        ticked = re.findall(r"`([^`]+)`", ln)
+        out += ticked or [t for t in re.split(r"[,;\s]+", re.sub(r"^\s*[-*]\s*", "", ln)) if re.search(r"[./*]", t)]
+    return [p.strip().strip("/") for p in out if p.strip() and not p.strip().startswith("(")]
+
+
+_packet = None
+
+
+def task_packet_paths():
+    """Allowed paths from the running task's packet (its Paperclip issue description). The Constitution lets a
+    packet unlock CLAUDE.md, .claude/**, docs/PLAN.md and .studio/project.yaml, but nothing provisioned the
+    packet's list into a worktree, so a packet-authorised CLAUDE.md edit was refused (2026-11-05, AGE-108).
+    NEVER_ALLOWED paths stay refused whatever the packet says, and the merge gate never merges a PR touching any
+    protected path (lib/merge_gate.py ALWAYS_PROTECTED), so Benjamin still reviews every such change.
+    Fetched once per call, only when a protected path is touched; fails closed (no paths)."""
+    global _packet
+    if _packet is None:
+        _packet = []
+        base, task, key = (os.environ.get(k) for k in ("PAPERCLIP_API_URL", "PAPERCLIP_TASK_ID", "PAPERCLIP_API_KEY"))
+        if base and task and key:
+            try:
+                req = urllib.request.Request(base.rstrip("/") + f"/api/issues/{task}",
+                                             headers={"Authorization": f"Bearer {key}"})
+                _packet = packet_paths(json.load(urllib.request.urlopen(req, timeout=5)).get("description") or "")
+            except Exception:
+                _packet = []
+    return _packet
+
+
 def allowed_paths(cwd):
     root = repo_root(cwd) or cwd or "."
-    paths = [p for p in os.environ.get("STUDIO_ALLOWED_PATHS", "").split(":") if p]
+    paths = [p for p in os.environ.get("STUDIO_ALLOWED_PATHS", "").split(":") if p] + task_packet_paths()
     try:
         with open(os.path.join(root, ".studio-allowed-paths")) as f:
             paths += [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
