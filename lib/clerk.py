@@ -1055,14 +1055,22 @@ class Clerk:
             runs = self.pc.runs(self.cid, limit=200) or []
         except Exception:
             runs = []
-        latest = {}
+        latest, ended = {}, {}
         for r in sorted(runs, key=lambda r: r.get("createdAt") or ""):
             latest[r.get("agentId")] = r
+            if r.get("status") not in self.LIVE_RUN:
+                ended[r.get("agentId")] = r
         # 2026-11-04: Paperclip shows "error" after a run the usage cap refused, and keeps an old "error" after a
         # cancelled run. A cap refusal is waiting for its window, not stuck; the status lists it as capped.
+        # 2026-11-07: the phone said "Codex-Builder is error ... reset it" all day while every run was refused by
+        # Codex's day pace. Paperclip's queued retry hid the refusal, and the refusal can reach Paperclip as exit
+        # code 5 (bin/agent-exec) without the studio-quota line. So: the latest ended run, either sign of a
+        # refusal, or a provider ledger with no room for this agent.
+        def cap_refused(r):
+            return r.get("status") == "failed" and (CAP_REFUSED.search(r.get("error") or "") or r.get("exitCode") == 5)
         capped = [a.get("name") for a in agents if a.get("status") == "error"
-                  and (latest.get(a.get("id")) or {}).get("status") == "failed"
-                  and CAP_REFUSED.search((latest.get(a.get("id")) or {}).get("error") or "")]
+                  and (cap_refused(ended.get(a.get("id")) or {})
+                       or self.window_out("codex" if (a.get("name") or "").startswith("Codex-") else "claude", a.get("id")))]
         down = [{"name": a.get("name"), "status": a.get("status"), "why": a.get("pauseReason"),
                  "last_run": (latest.get(a.get("id")) or {}).get("createdAt")}
                 for a in agents if a.get("status") in ("paused", "error") and a.get("name") not in capped]
