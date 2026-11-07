@@ -421,6 +421,30 @@ class ClerkTests(unittest.TestCase):
         self.assertEqual(snap["capped"], ["Builder-2"])
         self.assertEqual([(a["name"], a["last_run"]) for a in snap["agents"]], [("Codex-Scout", "2026-10-19T11:23:00Z")])
 
+    def test_the_status_counts_a_refusal_behind_a_retry_or_by_exit_code_as_capped(self):
+        # 2026-11-07: "Codex-Builder is error ... reset it" all day; every run was refused by Codex's day pace
+        self.fp.agents = [{"id": "cb", "name": "Codex-Builder", "status": "error"},
+                          {"id": "d", "name": "Director", "status": "error"},
+                          {"id": "b1", "name": "Builder-1", "status": "error"}]
+        self.fp.runs_ = [{"id": "r1", "agentId": "cb", "status": "failed", "exitCode": 5, "createdAt": "2026-11-07T15:42:00Z"},
+                         {"id": "r2", "agentId": "cb", "status": "scheduled_retry", "createdAt": "2026-11-07T15:43:00Z"},
+                         {"id": "r3", "agentId": "d", "status": "failed", "createdAt": "2026-11-07T15:42:00Z",
+                          "error": "studio-quota: claude cap reached; not starting"},
+                         {"id": "r4", "agentId": "d", "status": "queued", "createdAt": "2026-11-07T15:43:00Z"},
+                         {"id": "r5", "agentId": "b1", "status": "failed", "exitCode": 1, "createdAt": "2026-11-07T15:42:00Z"}]
+        c = self.clerk(); c.tick()
+        snap = c.state["status"]
+        self.assertEqual(snap["capped"], ["Codex-Builder", "Director"])
+        self.assertEqual([a["name"] for a in snap["agents"]], ["Builder-1"])  # a real failure still says reset it
+
+    def test_the_status_counts_an_agent_whose_ledger_has_no_room_as_capped(self):
+        self.fp.agents = [{"id": "cb", "name": "Codex-Builder", "status": "error"}]
+        self.fp.runs_ = [{"id": "r1", "agentId": "cb", "status": "failed", "exitCode": 1, "createdAt": "2026-11-07T15:42:00Z"}]
+        c = self.clerk()
+        with mock.patch.object(c, "window_out", lambda provider, agent: provider == "codex"):
+            c.tick()
+        self.assertEqual(c.state["status"]["capped"], ["Codex-Builder"])
+
     def test_a_skipped_review_with_red_checks_waits(self):
         self.skipped(); self.green(checks=[{"conclusion": "FAILURE"}])
         c, calls = self.gate_clerk(); c.tick()
