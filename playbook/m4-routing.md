@@ -17,7 +17,7 @@ Planned agents (not routable until activated): **Scout** (Claude Haiku 4.5), **C
 Luna), **Codex-Builder** (GPT-6 Sol), **Codex-Principal** (GPT-6 Astra).
 
 ### Activate (after merge)
-The usual fast-forward, then (Board API, done by Claude): rescan the Studio skills and attach
+The usual fast-forward, then (Board API): rescan the Studio skills and attach
 `routing-table` to the Director and the Principal with `POST /api/agents/:id/skills/sync`, which leaves
 the rest of each agent's settings alone.
 

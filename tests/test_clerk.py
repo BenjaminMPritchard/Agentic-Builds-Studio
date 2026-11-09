@@ -1214,7 +1214,7 @@ class SpareCodex(unittest.TestCase):
 
     def test_left_alone_while_the_week_lasts_or_without_a_current_reading(self):
         self.fp.add(id="t", identifier="AGE-91", title="t", status="todo", assigneeAgentId="cb")
-        self.ledger(40.0, 30.0, 5.0)  # 59.5 over 5 days: 11.9 a day
+        self.ledger(40.0, 10.0, 5.0)  # 59.5 over 5 days: 11.9 a day
         self.tick()
         self.ledger(90.0, 80.0, -0.1)  # a reading from before the reset says nothing
         self.tick()
