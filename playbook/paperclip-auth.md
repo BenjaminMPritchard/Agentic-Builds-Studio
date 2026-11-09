@@ -65,7 +65,7 @@ sudo visudo -cf /etc/sudoers.d/studio-agent
    python3 -c 'import json,os; p=os.environ["PAPERCLIP_AUTH_STORE"]; c=json.load(open(p))["credentials"]; t=next(iter(c.values()))["token"]; f=os.path.expanduser("~/.config/studio/paperclip-board-key"); fd=os.open(f, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600); os.write(fd, (t+"\n").encode()); os.close(fd); print("saved")'
    rm "$PAPERCLIP_AUTH_STORE"; unset PAPERCLIP_AUTH_STORE
    ```
-5. Checks (Claude runs the first and last):
+5. Checks:
    - No key, as Benjamin and as `studio-agent`, gets nothing:
      `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/api/companies` and
      `sudo -u studio-agent curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/api/companies`,
