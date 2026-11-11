@@ -306,7 +306,7 @@ class Controller(unittest.TestCase):
 
     def test_the_live_claude_policy_leaves_benjamin_his_share(self):
         # Benjamin, 2026-11-04: studio 35, his 60, and the studio stops at 90% of the account week.
-        self.assertEqual((LIVE["weekly_cap"], LIVE["personal_weekly"], quota.account_stop(LIVE, "week")), (35, 60, 90))
+        self.assertEqual((LIVE["weekly_cap"], LIVE["personal_weekly"], quota.account_stop(LIVE, "week")), (20, 60, 75))
         self.assertLessEqual(LIVE["weekly_cap"] + LIVE["personal_weekly"] + 2 * LIVE["margin"]["week"], 100)
         self.assertLessEqual(LIVE["weekly_cap"] + 2 * LIVE["margin"]["week"], quota.account_stop(LIVE, "week"))
         self.assertTrue(LIVE["week_pace"])
