@@ -238,7 +238,7 @@ class ClerkTests(unittest.TestCase):
         try:
             clerk_mod.QUOTA_LEDGER = ledger
             c = self.clerk(now=lambda: 600); c.tick()
-            self.assertIn("Claude studio use 4.5 of 20 points this 5-hour window (resets 1pm), 1.5 of 35 this week",
+            self.assertIn("Claude studio use 4.5 of 20 points this 5-hour window (resets 1pm), 1.5 of 20 this week",
                           c.state["usage"])
             self.assertIn("reading 10 min old", c.state["usage"])
             clerk_mod.QUOTA_LEDGER = os.path.join(self.tmp.name, "missing.json")
@@ -935,7 +935,7 @@ class RestartReviews(unittest.TestCase):
         os.makedirs(clerk_mod.QUOTA_DIR, exist_ok=True)
         ledger = {"last": {"t": self.T - 7200, "five_hour": {"pct": 30.0, "key": "K", "at": self.T - 60},
                            "week": {"pct": 50.0, "key": "W", "at": self.T + 86400}},
-                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 20.0}}, "active": {}, "samples": {}}
+                  "studio": {"five_hour": {"K": 21.0}, "week": {"W": 10.0}}, "active": {}, "samples": {}}
         with open(os.path.join(clerk_mod.QUOTA_DIR, "claude.json"), "w") as f:
             json.dump(ledger, f)
         c = Clerk(self.pc, "co", self.tmp.name, gh=lambda a: [], now=lambda: self.T)
@@ -1214,7 +1214,7 @@ class SpareCodex(unittest.TestCase):
 
     def test_left_alone_while_the_week_lasts_or_without_a_current_reading(self):
         self.fp.add(id="t", identifier="AGE-91", title="t", status="todo", assigneeAgentId="cb")
-        self.ledger(40.0, 30.0, 5.0)  # 59.5 over 5 days: 11.9 a day
+        self.ledger(40.0, 10.0, 5.0)  # 59.5 over 5 days: 11.9 a day
         self.tick()
         self.ledger(90.0, 80.0, -0.1)  # a reading from before the reset says nothing
         self.tick()

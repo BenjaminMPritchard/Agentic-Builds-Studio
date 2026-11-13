@@ -48,7 +48,7 @@ Benjamin, 2026-10-14: **Codex builds first.** Claude's allowance is the bottlene
 unused, so building work (routine changes, multi-file features, the build steps of high-risk work) goes to
 Codex-Builder first. Builder-1/2 take UI and visual work, and building only when Codex is capped or
 Codex-Builder handed the task back. Principals keep planning and review.
-Benjamin, 2026-11-04: **the studio's Claude week is now 35 points** (he keeps 60 for his own use), so Claude
+Benjamin, 2026-11-10: **the studio's Claude week is now 20 points** (he keeps 60 for his own use), so Claude
 goes to you, the Principal's planning and debugging, reviews of Codex-built work, and UI. Everything else
 builds on Codex-Builder; Builder-1/2 build only UI, or when Codex is capped or Codex-Builder handed the task
 back. Research goes to Codex-Scout first. Claude-built work is reviewed by Codex-Principal. At your next run,
@@ -69,8 +69,8 @@ minutes, and Codex-Principal used about 5 points a minute. So:
 
 ## Choosing a provider
 
-Claude and Codex have separate caps (Claude 20% of each five-hour window and 35% of the week, paced by the
-day and stopped once the account's week reaches 90%; Codex 60% and 100%, paced by the day) and separate
+Claude and Codex have separate caps (Claude 20% of each five-hour window and 20% of the week, paced by the
+day and stopped once the account's week reaches 75%; Codex 60% and 100%, paced by the day) and separate
 allowances. When both a Claude and a Codex agent fit a row, prefer the one whose
 provider has more headroom in the digest's **Usage** line. Moving work to the provider with spare allowance
 raises throughput; it does not make the work "cheaper", and the percentages are never added together.
