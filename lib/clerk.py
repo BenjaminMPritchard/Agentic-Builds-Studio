@@ -39,6 +39,13 @@ GATE_LOOKBACK_DAYS = 14
 QUOTA_DIR = os.environ.get("STUDIO_QUOTA_DIR", "/srv/studio/data/quota")
 QUOTA_LEDGER = os.path.join(QUOTA_DIR, "claude.json")
 QUOTA_POLICY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "policy", "quota.json")
+STUDIO_QUOTA_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "studio-quota")
+STALE_READING_SECONDS = 30 * 60  # a reading older than this is refreshed before being reported
+
+
+def _default_quota_refresh():
+    """Run `bin/studio-quota status --provider claude` to take a fresh reading into the ledger."""
+    subprocess.run([STUDIO_QUOTA_BIN, "status", "--provider", "claude"], check=True, timeout=60)
 
 
 APP_CONFIG = os.environ.get("STUDIO_AGENTS_APP_CONFIG", "/etc/studio/agents-app.json")
@@ -73,9 +80,10 @@ def gh_json(args):
 class Clerk:
     def __init__(self, pc, company_id, data_dir, gh=gh_json, dry_run=False, director_id=None,
                  principal_id=None, recorder_id=None, now=time.time, deploy_repo=None, infra_project_id=None,
-                 gate=merge_gate.run, merge_policy=merge_gate.load_policy):
+                 gate=merge_gate.run, merge_policy=merge_gate.load_policy, quota_refresh=_default_quota_refresh):
         self.pc, self.cid, self.data, self.gh, self.dry = pc, company_id, data_dir, gh, dry_run
         self.gate, self.merge_policy = gate, merge_policy
+        self.quota_refresh = quota_refresh
         self.director, self.principal, self.recorder, self.now = director_id, principal_id, recorder_id, now
         self.deploy_repo, self.infra_project = deploy_repo, infra_project_id
         self.state_path = os.path.join(data_dir, "clerk-state.json")
@@ -350,6 +358,9 @@ class Clerk:
         for i in issues:
             if i.get("status") in ("done", "cancelled"):
                 continue
+            authority = merge_gate.AUTHORITY.search(i.get("description") or "")
+            if authority and authority.group(1).strip() == "A":
+                continue  # A-authority tasks never carry a plan document (merge_gate.py: plan+A is a contradiction)
             plan = self.pc.get_document(i["id"], "plan")
             if not plan:
                 continue
@@ -393,6 +404,14 @@ class Clerk:
         if not last:
             self.state["usage"] = "usage-cap ledger has no reading yet"
             return
+        if self.now() - last["t"] > STALE_READING_SECONDS:
+            try:
+                self.quota_refresh()
+                with open(QUOTA_LEDGER) as f:
+                    ledger = json.load(f)
+                last = ledger.get("last") or last
+            except Exception as e:
+                self.log("usage_refresh_failed", error=str(e))
         s = quota.status(ledger, last, quota.load_policy(QUOTA_POLICY, "claude"))
         age = int((self.now() - last["t"]) / 60)
         self.state["usage"] = (f"Claude studio use {s['studio']['five_hour']:g} of {s['caps']['five_hour']} points this "
